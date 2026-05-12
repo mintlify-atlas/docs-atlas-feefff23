@@ -1,0 +1,36 @@
+---
+title: "Optional enhancement patches for sm64dx"
+description: "A catalogue of the optional patch files in enhancements/ that add crash screens, debug helpers, an FPS counter, and more to sm64dx."
+---
+
+The `enhancements/` directory ships several unofficial patches that extend sm64dx with useful features without modifying the baseline source tree. Each patch is an independent `.patch` file that you apply or revert on demand, keeping your working tree clean when a feature is not needed. The patches cover hardware-exception crash reporting, 3D debug visualisation, an in-game frame-rate counter, an Expansion Pak error screen, and a gameplay demo recorder.
+
+## Available enhancements
+
+<CardGroup cols={2}>
+  <Card title="Crash screen" icon="triangle-exclamation" iconType="solid">
+    **`crash.patch`** — Displays a crash screen when the CPU throws a hardware exception. Useful for diagnosing in-game crashes without a debugger: the screen prints enough context to identify the faulting instruction and register state.
+  </Card>
+  <Card title="Debug box" icon="cube" iconType="solid">
+    **`debug_box.patch`** — Draws 3D axis-aligned or rotated wireframe boxes at runtime. Three helper functions are provided:
+
+    - `debug_box(center, bounds)` — draws a box from `(center - bounds)` to `(center + bounds)`.
+    - `debug_box_rot(...)` — draws a box rotated in the xz-plane.
+    - `debug_box_pos(min, max)` — draws a box by specifying explicit min and max points.
+  </Card>
+  <Card title="FPS counter" icon="gauge-high" iconType="solid">
+    **`fps.patch`** — Overlays the current frame rate on screen while the game is running. Useful for profiling the performance impact of new game code or renderer changes.
+  </Card>
+  <Card title="Memory Expansion Pak error screen" icon="memory" iconType="solid">
+    **`mem_error_screen.patch`** — Shows an error message on startup when the game requires more than 4 MB of RAM but no Expansion Pak is detected. Use this patch whenever your mod allocates enough memory to need the Expansion Pak.
+  </Card>
+  <Card title="Demo input recorder" icon="circle-dot" iconType="solid">
+    **`record_demo.patch`** — Records gameplay demos for the attract screen. Requires the latest nightly build of Project64 and uses its JavaScript API to dump demo input data from RAM. Place `enhancements/RecordDemo.js` in the `/Scripts/` folder of your Project64 installation, then activate it from the Scripts window. Recorded demos are written to `/SM64_DEMOS/` inside the Project64 directory.
+  </Card>
+</CardGroup>
+
+<Note>
+  Patches are independent — you can apply any combination of them. Each patch
+  touches only the source files relevant to its feature and does not conflict
+  with the others unless you are modifying the same code areas yourself.
+</Note>

@@ -1,0 +1,107 @@
+---
+title: "Build sm64dx on Debian, Ubuntu, Arch, or Fedora"
+description: "Install the MIPS cross-compiler toolchain, place your SM64 baserom, and compile sm64dx on Debian, Ubuntu, Arch Linux, or Fedora-based Linux systems."
+---
+
+Building sm64dx on Linux requires a MIPS binutils toolchain, Python 3.6 or later, and a copy of an original Super Mario 64 ROM for asset extraction. The build system auto-detects the correct binutils prefix for your distribution, so in most cases you only need to install the right package and run `make`. Ensure the repository path does not exceed 255 characters — longer paths will cause build errors.
+
+## Install dependencies
+
+<Tabs>
+  <Tab title="Debian / Ubuntu">
+    Install the build dependencies with `apt`:
+
+    ```bash
+    sudo apt install -y binutils-mips-linux-gnu build-essential git pkgconf python3
+    ```
+
+    The Makefile detects the `mips-linux-gnu-` toolchain prefix automatically on Debian-based systems.
+  </Tab>
+  <Tab title="Arch Linux">
+    Install the base development group and Python from the official repositories:
+
+    ```bash
+    sudo pacman -S base-devel python
+    ```
+
+    Then install the MIPS binutils package from the AUR. Using your preferred AUR helper:
+
+    ```bash
+    # Example using yay
+    yay -S mips64-elf-binutils
+    ```
+
+    The Makefile detects the `mips64-elf-` prefix automatically when `mips64-elf-ld` is found on your `PATH`.
+  </Tab>
+  <Tab title="Fedora / RHEL">
+    On Fedora and RHEL-based distributions, the MIPS toolchain is available as `mips64-linux-gnu`:
+
+    ```bash
+    sudo dnf install make gcc git pkgconf python3 mips64-linux-gnu-binutils
+    ```
+
+    The Makefile detects the `mips64-linux-gnu-` prefix automatically.
+  </Tab>
+</Tabs>
+
+<Note>
+  If your distribution provides a different MIPS binutils prefix, set the `CROSS` variable explicitly when running `make`. See [Build options](/building/build-options) for details.
+</Note>
+
+## Build steps
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone sm64dx from within your Linux shell:
+
+    ```bash
+    git clone https://github.com/Project516/sm64dx.git
+    cd sm64dx
+    ```
+  </Step>
+  <Step title="Place your baserom">
+    Copy your original Super Mario 64 ROM into the project root. The file must be named `baserom.<VERSION>.z64`, where `<VERSION>` is one of `jp`, `us`, `eu`, `sh`, or `cn`.
+
+    ```bash
+    # Example for the US version
+    cp /path/to/your/rom.z64 baserom.us.z64
+    ```
+
+    You need one baserom for each version you intend to build.
+  </Step>
+  <Step title="Run make">
+    Build the ROM by running `make`. The default version is `us`:
+
+    ```bash
+    make VERSION=us
+    ```
+
+    To build a different version or speed up compilation with parallel jobs:
+
+    ```bash
+    make VERSION=jp -j4
+    ```
+
+    To build the EU version without verifying the ROM hash:
+
+    ```bash
+    make VERSION=eu COMPARE=0
+    ```
+
+    Build artifacts are placed in the `build/` directory. The output ROM is named `build/<VERSION>/sm64.<VERSION>.z64`.
+  </Step>
+</Steps>
+
+## Specifying the CROSS prefix
+
+If the Makefile cannot detect a suitable MIPS toolchain automatically, or if you have multiple toolchains installed and want to select a specific one, pass the `CROSS` variable on the command line:
+
+```bash
+# Use the mips64-elf toolchain explicitly
+make VERSION=us CROSS=mips64-elf-
+
+# Use the mips-linux-gnu toolchain explicitly
+make VERSION=us CROSS=mips-linux-gnu-
+```
+
+The `CROSS` value is prepended to each binutils binary name (`as`, `ld`, `ar`, `objcopy`, etc.).

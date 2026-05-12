@@ -1,0 +1,187 @@
+---
+title: "Mario's action state machine explained"
+description: "How sm64dx represents Mario's movement state, the action categories and files that implement them, and the key functions that drive each frame of gameplay."
+---
+
+Mario's entire movement system is a single state machine built around one 32-bit `action` field in `MarioState`. Each frame, `execute_mario_action()` reads that field, dispatches to the matching category handler, and each handler either runs the action's logic or transitions to a new action by calling `set_mario_action()`. The seven action category files cover every state Mario can be in—running, jumping, swimming, riding an object, watching a cutscene—and together they account for most of the lines of code in `src/game/`.
+
+## MarioState struct
+
+`MarioState` is defined in `include/types.h` and holds every piece of data that describes Mario at a given frame.
+
+```c
+struct MarioState {
+    /*0x00*/ u16 unk00;
+    /*0x02*/ u16 input;              // raw controller input flags
+    /*0x04*/ u32 flags;              // Mario flags (cap state, special modes, etc.)
+    /*0x08*/ u32 particleFlags;      // active particle effect flags
+    /*0x0C*/ u32 action;             // current action ID
+    /*0x10*/ u32 prevAction;         // action ID from the previous frame
+    /*0x14*/ u32 terrainSoundAddend; // mixed into footstep sound selection
+    /*0x18*/ u16 actionState;        // sub-state index within the current action
+    /*0x1A*/ u16 actionTimer;        // frames spent in the current action
+    /*0x1C*/ u32 actionArg;          // argument passed when the action was set
+    /*0x20*/ f32 intendedMag;        // intended analog stick magnitude [0, 64]
+    /*0x24*/ s16 intendedYaw;        // intended movement direction (world yaw)
+    /*0x26*/ s16 invincTimer;        // frames of invincibility remaining
+    /*0x28*/ u8 framesSinceA;        // frames since A was last pressed
+    /*0x29*/ u8 framesSinceB;        // frames since B was last pressed
+    /*0x2A*/ u8 wallKickTimer;       // window for wall-kick input
+    /*0x2B*/ u8 doubleJumpTimer;     // window for double-jump input
+    /*0x2C*/ Vec3s faceAngle;        // facing pitch, yaw, roll
+    /*0x32*/ Vec3s angleVel;         // angular velocity
+    /*0x38*/ s16 slideYaw;           // yaw during sliding actions
+    /*0x3A*/ s16 twirlYaw;           // yaw offset during the twirl action
+    /*0x3C*/ Vec3f pos;              // world position (X, Y, Z)
+    /*0x48*/ Vec3f vel;              // velocity vector
+    /*0x54*/ f32 forwardVel;         // signed speed along faceAngle.y
+    /*0x58*/ f32 slideVelX;          // lateral slide velocity (X component)
+    /*0x5C*/ f32 slideVelZ;          // lateral slide velocity (Z component)
+    /*0x60*/ struct Surface *wall;   // wall Mario is currently touching
+    /*0x64*/ struct Surface *ceil;   // ceiling above Mario
+    /*0x68*/ struct Surface *floor;  // floor beneath Mario
+    /*0x6C*/ f32 ceilHeight;         // Y of the ceiling surface
+    /*0x70*/ f32 floorHeight;        // Y of the floor surface
+    /*0x74*/ s16 floorAngle;         // floor slope angle
+    /*0x76*/ s16 waterLevel;         // Y of the water surface in the current area
+    /*0x78*/ struct Object *interactObj; // object Mario is interacting with
+    /*0x7C*/ struct Object *heldObj;     // object Mario is holding
+    /*0x80*/ struct Object *usedObj;     // object Mario is using (e.g. cannon)
+    /*0x84*/ struct Object *riddenObj;   // object Mario is riding (e.g. Koopa shell)
+    /*0x88*/ struct Object *marioObj;    // Mario's own Object node
+    /*0x8C*/ struct SpawnInfo *spawnInfo;
+    /*0x90*/ struct Area *area;
+    /*0x94*/ struct PlayerCameraState *statusForCamera;
+    /*0x98*/ struct MarioBodyState *marioBodyState;
+    /*0x9C*/ struct Controller *controller;
+    /*0xA0*/ struct DmaHandlerList *animList;
+    /*0xA4*/ u32 collidedObjInteractTypes;
+    /*0xA8*/ s16 numCoins;           // coins collected this session
+    /*0xAA*/ s16 numStars;           // stars collected
+    /*0xAC*/ s8 numKeys;             // unused key mechanic
+    /*0xAD*/ s8 numLives;
+    /*0xAE*/ s16 health;             // health (0x0880 = full, 0x0100 = one segment)
+    /*0xB0*/ s16 unkB0;
+    /*0xB2*/ u8 hurtCounter;         // frames until next hurt check
+    /*0xB3*/ u8 healCounter;
+    /*0xB4*/ u8 squishTimer;         // frames remaining in squish state
+    /*0xB5*/ u8 fadeWarpOpacity;
+    /*0xB6*/ u16 capTimer;           // frames remaining on a timed cap
+    /*0xB8*/ s16 prevNumStarsForDialog;
+    /*0xBC*/ f32 peakHeight;         // highest Y reached during current jump
+    /*0xC0*/ f32 quicksandDepth;     // how deep Mario is sinking into quicksand
+    /*0xC4*/ f32 gettingBlownGravity;
+};
+```
+
+## Action categories
+
+Each category is implemented in a paired `.c` / `.h` file. The category handler function receives a `MarioState *` and returns 0 or 1.
+
+<Tabs>
+  <Tab title="Airborne">
+    **File:** `mario_actions_airborne.c` / `.h`
+
+    Covers all states where Mario is not touching the ground: single jump, double jump, triple jump, long jump, backflip, side flip, wall kick, freefall, twirling, and the various cap-powered flight states.
+
+    ```c
+    s32 mario_execute_airborne_action(struct MarioState *m);
+    ```
+
+    Action handlers in this file update `m->vel.y` each frame according to gravity and check landing conditions using `find_floor()`. When Mario lands, the handler calls `set_mario_action()` to transition to the appropriate ground or bounce action.
+  </Tab>
+  <Tab title="Moving">
+    **File:** `mario_actions_moving.c` / `.h`
+
+    Covers ground movement: walking, running, turning, braking, sliding, and the various speed-tier states. The step sound helper is also declared here.
+
+    ```c
+    void play_step_sound(struct MarioState *m, s16 frame1, s16 frame2);
+    s32 mario_execute_moving_action(struct MarioState *m);
+    ```
+
+    Ground speed is managed via `m->forwardVel` and `mario_set_forward_vel()`. Slope steepness (read from `m->floor->normal`) determines whether Mario slides or walks normally.
+  </Tab>
+  <Tab title="Stationary">
+    **File:** `mario_actions_stationary.c` / `.h`
+
+    Covers states where Mario is on the ground but not moving intentionally: idle, standing, crouching, looking up, panting, sleeping, and first-person mode.
+  </Tab>
+  <Tab title="Submerged">
+    **File:** `mario_actions_submerged.c` / `.h`
+
+    Covers all underwater and gas states: swimming, treading water, drowning, and the transition from water to land. The `waterLevel` field in `MarioState` determines submersion depth.
+  </Tab>
+  <Tab title="Automatic">
+    **File:** `mario_actions_automatic.c` / `.h`
+
+    Covers actions the player cannot interrupt: climbing a pole or tree, crawling through a hole, riding a carpet, and other scripted movement sequences.
+  </Tab>
+  <Tab title="Cutscene">
+    **File:** `mario_actions_cutscene.c` / `.h`
+
+    Covers scripted in-game cutscenes: the star grab, entering a painting, exiting a level, the cap switch cutscene, and boss defeats. Mario's inputs are ignored for the duration.
+  </Tab>
+  <Tab title="Object">
+    **File:** `mario_actions_object.c` / `.h`
+
+    Covers object-interaction states: riding a Koopa shell, riding Yoshi, being thrown by Bowser, being grabbed by an enemy, and cannon launch. These states hand significant control to the ridden or interacting object.
+  </Tab>
+</Tabs>
+
+## Key functions
+
+The functions below are declared in `mario.h` and form the core of the action system.
+
+```c
+// mario.h — core action machine
+
+// Top-level dispatcher called once per frame from the object list processor.
+// Reads m->action and delegates to the appropriate category handler.
+s32 execute_mario_action(UNUSED struct Object *o);
+
+// Transitions Mario to a new action. Resets actionState, actionTimer,
+// and actionArg. Returns 0 if the transition was blocked.
+u32 set_mario_action(struct MarioState *m, u32 action, u32 actionArg);
+
+// Sets an airborne action and initialises jump velocity. Called when
+// Mario transitions from the ground into a jump.
+s32 set_jumping_action(struct MarioState *m, u32 action, u32 actionArg);
+
+// Drops any held object, then calls set_mario_action().
+s32 drop_and_set_mario_action(struct MarioState *m, u32 action, u32 actionArg);
+
+// Applies a hurt counter and transitions to a hurt/knockback action.
+s32 hurt_and_set_mario_action(struct MarioState *m, u32 action,
+                               u32 actionArg, s16 hurtCounter);
+
+// Selects the correct steep-slope-jump action based on floor angle.
+void set_steep_jump_action(struct MarioState *m);
+
+// Transitions from a submerged action to walking on the surface.
+s32 transition_submerged_to_walking(struct MarioState *m);
+
+// Transitions Mario into the water-plunge action when he enters water.
+s32 set_water_plunge_action(struct MarioState *m);
+
+// Checks for action-exit conditions common to all actions
+// (e.g. death, taking damage, pause menu).
+s32 check_common_action_exits(struct MarioState *m);
+```
+
+### Animation helpers
+
+These functions in `mario.h` manage Mario's animation state alongside the action:
+
+```c
+s32 is_anim_at_end(struct MarioState *m);
+s32 is_anim_past_end(struct MarioState *m);
+s16 set_mario_animation(struct MarioState *m, s32 targetAnimID);
+s16 set_mario_anim_with_accel(struct MarioState *m, s32 targetAnimID, s32 accel);
+void set_anim_to_frame(struct MarioState *m, s16 animFrame);
+s32 is_anim_past_frame(struct MarioState *m, s16 animFrame);
+```
+
+<Note>
+Action IDs are 32-bit values whose upper bits encode the action group (airborne, moving, stationary, etc.) and whose lower bits encode the specific state. Bitmasking the group bits lets a single `switch` in `execute_mario_action()` dispatch to the correct category file without a lengthy chain of comparisons.
+</Note>

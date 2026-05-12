@@ -1,0 +1,123 @@
+---
+title: "Makefile build options reference"
+description: "Complete reference for every configurable variable in the sm64dx Makefile, including defaults, accepted values, and example command lines."
+---
+
+The sm64dx Makefile exposes a set of variables that control which ROM version is built, which compiler and microcode are used, and whether the output is verified against the original ROM's SHA-1 hash. Every variable can be set on the `make` command line with `make VARIABLE=value`. Running `make clean` between builds is often required when switching options that affect compiled object files.
+
+## Variable reference
+
+| Variable | Default | Accepted values | Description |
+|---|---|---|---|
+| `VERSION` | `us` | `jp` `us` `eu` `sh` `cn` | Selects which regional release to build. |
+| `COMPILER` | `ido` | `ido` `gcc` | Selects the C compiler. `ido` uses the SGI IRIS Development Option compiler to produce a byte-for-byte matching ROM. `gcc` uses GCC and implicitly sets `NON_MATCHING=1`. |
+| `GRUCODE` | version-dependent | `f3d_old` `f3d_new` `f3dex` `f3dex2` `f3dzex` | Selects the RSP microcode (Graphics Binary Interface). The default depends on `VERSION`. |
+| `COMPARE` | `1` | `0` `1` | When `1`, verifies the SHA-1 hash of the built ROM against the known-good hash for the selected version. Automatically set to `0` when `NON_MATCHING=1` or when a non-default `GRUCODE` is selected. |
+| `NON_MATCHING` | `0` | `0` `1` | When `1`, uses functionally equivalent C implementations for sections that cannot be matched exactly, and avoids instances of undefined behavior. Automatically set to `1` when `COMPILER=gcc`. |
+| `CROSS` | auto-detected | any prefix string | Cross-compiler toolchain prefix prepended to every binutils binary. Auto-detected in the order: `mips-linux-gnu-`, `mips64-linux-gnu-`, `mips64-elf-`. Set explicitly if detection fails. |
+| `USE_QEMU_IRIX` | `0` | `0` `1` | When `COMPILER=ido`, selects how the IRIX compiler binaries are run. `0` uses statically recompiled IRIX programs (default). `1` uses `qemu-irix` and requires the `QEMU_IRIX` environment variable or the `qemu-irix` binary to be on your `PATH`. |
+
+### VERSION defaults and notes
+
+| VALUE | Region | Year | Default GRUCODE | Opt flags |
+|---|---|---|---|---|
+| `jp` | Japan | 1996 | `f3d_old` | `-g` |
+| `us` | North America | 1996 | `f3d_old` | `-g` |
+| `eu` | PAL Europe | 1997 | `f3d_new` | `-O2` |
+| `sh` | Japan Shindou (rumble pak) | 1997 | `f3d_new` | `-O2` |
+| `cn` | Chinese iQue Player | 2003 | `f3d_new` | `-O2` |
+
+### GRUCODE values
+
+| Value | Microcode | Notes |
+|---|---|---|
+| `f3d_old` | Fast3D (original) | Default for `jp` and `us`. Required for hash-matching those versions. |
+| `f3d_new` | Fast3D 2.0H | Default for `eu`, `sh`, and `cn`. Required for hash-matching those versions. |
+| `f3dex` | Fast3DEX | Non-default. Disables `COMPARE` automatically. |
+| `f3dex2` | Fast3DEX2 | Non-default. Disables `COMPARE` automatically. |
+| `f3dzex` | Fast3DZEX (Animal Crossing) | **Experimental.** The Makefile emits a warning when this value is used. Disables `COMPARE` automatically. |
+
+<Warning>
+  `f3dzex` is experimental microcode derived from Animal Crossing / Dōbutsu no Mori. Use it at your own risk; it may produce graphical glitches or fail to build cleanly.
+</Warning>
+
+## Example commands
+
+Build the default US version and verify the ROM hash:
+
+```bash
+make VERSION=us
+```
+
+Build the Japanese version with 4 parallel jobs:
+
+```bash
+make VERSION=jp -j4
+```
+
+Build the EU version without verifying the ROM hash:
+
+```bash
+make VERSION=eu COMPARE=0
+```
+
+Build the US version with GCC (non-matching, no hash comparison):
+
+```bash
+make VERSION=us COMPILER=gcc -j4
+```
+
+Build the Japanese version with GCC and the f3dex2 microcode:
+
+```bash
+make VERSION=jp COMPILER=gcc GRUCODE=f3dex2 -j4
+```
+
+Build with an explicit MIPS toolchain prefix:
+
+```bash
+make VERSION=us CROSS=mips64-elf-
+```
+
+Build using IDO via qemu-irix (requires `qemu-irix` installed):
+
+```bash
+make VERSION=us COMPILER=ido USE_QEMU_IRIX=1
+```
+
+## COMPARE behavior
+
+`COMPARE=1` is the default, but the Makefile automatically disables comparison in several situations:
+
+- `NON_MATCHING=1` is set (either explicitly or via `COMPILER=gcc`)
+- A non-default `GRUCODE` is selected for the given `VERSION`
+
+Hash-matching combinations that support `COMPARE=1`:
+
+| VERSION | GRUCODE |
+|---|---|
+| `jp` | `f3d_old` |
+| `us` | `f3d_old` |
+| `eu` | `f3d_new` |
+| `sh` | `f3d_new` |
+| `cn` | `f3d_new` |
+
+Any other `VERSION`/`GRUCODE` combination sets `COMPARE=0` automatically.
+
+## Cleaning the build
+
+To remove all build artifacts for a fresh build:
+
+```bash
+make clean
+```
+
+To also remove extracted assets and rebuild the tools:
+
+```bash
+make distclean
+```
+
+<Note>
+  Running `make clean` is often necessary when switching `VERSION`, `COMPILER`, or `GRUCODE` between builds, since many object files depend on compile-time definitions that change with these options.
+</Note>

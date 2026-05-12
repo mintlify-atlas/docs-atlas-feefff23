@@ -1,0 +1,175 @@
+---
+title: "Audio system: sequences, synthesis, RSP"
+description: "Architecture of the sm64dx audio driver covering sequence playback, PCM synthesis, RSP microcode, sound effect banks, and Shindou-specific audio variants."
+---
+
+The sm64dx audio system is a software-only N64 audio driver that schedules RSP tasks to mix PCM audio into output buffers. It is split into several cooperating C files under `src/audio/`: a sequence player that interprets MIDI-like sequence data, a synthesis engine that renders note layers to PCM, a heap allocator for audio memory, and load/DMA routines that stream sound banks from the ROM. The game communicates with the driver through the high-level API in `external.h`, which hides the internal task-queue and memory management details.
+
+## Audio subsystem files
+
+<Steps>
+  <Step title="external.c / external.h">
+    The public-facing audio API consumed by the rest of the game. It provides `play_sound()`, `play_music()`, `stop_background_music()`, `seq_player_fade_out()`, `sound_reset()`, and the jingle helpers (`play_star_fanfare()`, `play_course_clear()`, etc.). Three sequence players are available:
+
+    ```c
+    #define SEQ_PLAYER_LEVEL  0  // level background music
+    #define SEQ_PLAYER_ENV    1  // puzzle jingles and secondary music
+    #define SEQ_PLAYER_SFX    2  // sound effects
+    ```
+
+    The `SEQUENCE_ARGS` macro packs a priority and sequence ID into one 16-bit word passed to `play_music()`:
+
+    ```c
+    #define SEQUENCE_ARGS(priority, seqId) ((priority << 8) | seqId)
+    ```
+  </Step>
+  <Step title="seqplayer.c / seqplayer.h">
+    The sequence player interpreter. It steps through `.m64` (MIDI-like) sequence data, driving per-channel note events. Core functions:
+
+    ```c
+    void process_sequences(s32 iterationsRemaining);
+    void init_sequence_player(u32 player);
+    void init_sequence_players(void);
+    void sequence_player_disable(struct SequencePlayer *seqPlayer);
+    void sequence_channel_disable(struct SequenceChannel *seqPlayer);
+    void seq_channel_layer_disable(struct SequenceChannelLayer *seqPlayer);
+    ```
+
+    `process_sequences()` is called once per audio frame and advances all active players by the appropriate number of ticks.
+  </Step>
+  <Step title="synthesis.c / synthesis.h">
+    The PCM synthesis engine. It iterates over active note layers, applies envelope, pitch, and volume parameters, and writes interleaved 16-bit stereo samples into the output buffer. The RSP then picks up this buffer for final output mixing. The synthesis engine is paired with RSP audio microcode; it builds `OSTask` structures describing the audio workload and posts them to the RSP via `create_next_audio_frame_task()`.
+  </Step>
+  <Step title="load.c / load.h">
+    DMA and segment management: loading sound bank headers, instrument definitions, and sample data from ROM into audio heap. `audio_init()` (declared in `external.h`, defined here) initialises the heap and loads the initial sound banks. Bank selection is driven by `sound_reset(presetId)`, which switches the set of loaded banks when entering a new area.
+  </Step>
+  <Step title="heap.c / heap.h">
+    A simple pool allocator dedicated to audio memory. It allocates from a contiguous region reserved at startup, and provides `persistent` and `temporary` allocation pools so that permanent bank data and per-frame scratch data can be managed separately without fragmentation.
+  </Step>
+  <Step title="playback.c / playback.h">
+    Manages the per-note playback state. It maintains the list of active `Note` structs, handles note start/stop/release events received from the sequence player, and cooperates with the synthesis engine to drive envelope progression.
+  </Step>
+  <Step title="data.c / data.h">
+    Statically initialised tables: note-frequency lookup tables, envelope curves, and the global `gAudioRandom` seed used by the audio driver's internal randomisation.
+  </Step>
+  <Step title="effects.c / effects.h">
+    Reverb and chorus effect processing applied to the synthesis output before the RSP task is submitted.
+  </Step>
+</Steps>
+
+## Shindou-specific audio files
+
+The Shindou (SH) release uses a revised audio session layout and a different audio binary format. Three extra files handle this variant:
+
+| File | Purpose |
+|---|---|
+| `synthesis_sh.c` | Shindou-specific synthesis loop with revised mixing paths |
+| `load_sh.c` | Shindou sound bank loading and DMA routines |
+| `port_sh.c` | Port-layer glue that maps Shindou audio sessions to the shared sequence player |
+| `audio_session_presets_sh.c` | Static preset tables for the Shindou audio session configurations |
+| `shindou_debug_prints.c` | Debug logging stubs present in the Shindou binary |
+
+The Shindou files are selected at compile time when `VERSION=sh` is passed to `make`. They replace or supplement the base `synthesis.c` and `load.c` rather than patching them, keeping the version-specific code isolated.
+
+## Sequence IDs
+
+Every piece of background music and event jingle is identified by an entry in the `SeqId` enum declared in `include/seq_ids.h`:
+
+```c
+enum SeqId {
+    SEQ_SOUND_PLAYER,                 // 0x00 — internal sound effect channel
+    SEQ_EVENT_CUTSCENE_COLLECT_STAR,  // 0x01
+    SEQ_MENU_TITLE_SCREEN,            // 0x02
+    SEQ_LEVEL_GRASS,                  // 0x03 — Bob-omb Battlefield theme
+    SEQ_LEVEL_INSIDE_CASTLE,          // 0x04
+    SEQ_LEVEL_WATER,                  // 0x05 — Jolly Roger Bay theme
+    SEQ_LEVEL_HOT,                    // 0x06 — Lethal Lava Land theme
+    SEQ_LEVEL_BOSS_KOOPA,             // 0x07
+    SEQ_LEVEL_SNOW,                   // 0x08
+    SEQ_LEVEL_SLIDE,                  // 0x09
+    SEQ_LEVEL_SPOOKY,                 // 0x0A
+    SEQ_EVENT_PIRANHA_PLANT,          // 0x0B
+    SEQ_LEVEL_UNDERGROUND,            // 0x0C
+    SEQ_MENU_STAR_SELECT,             // 0x0D
+    SEQ_EVENT_POWERUP,                // 0x0E
+    SEQ_EVENT_METAL_CAP,              // 0x0F
+    SEQ_EVENT_KOOPA_MESSAGE,          // 0x10
+    SEQ_LEVEL_KOOPA_ROAD,             // 0x11
+    SEQ_EVENT_HIGH_SCORE,             // 0x12
+    SEQ_EVENT_MERRY_GO_ROUND,         // 0x13
+    SEQ_EVENT_RACE,                   // 0x14
+    SEQ_EVENT_CUTSCENE_STAR_SPAWN,    // 0x15
+    SEQ_EVENT_BOSS,                   // 0x16
+    SEQ_EVENT_CUTSCENE_COLLECT_KEY,   // 0x17
+    SEQ_EVENT_ENDLESS_STAIRS,         // 0x18
+    SEQ_LEVEL_BOSS_KOOPA_FINAL,       // 0x19
+    SEQ_EVENT_CUTSCENE_CREDITS,       // 0x1A
+    SEQ_EVENT_SOLVE_PUZZLE,           // 0x1B
+    SEQ_EVENT_TOAD_MESSAGE,           // 0x1C
+    SEQ_EVENT_PEACH_MESSAGE,          // 0x1D
+    SEQ_EVENT_CUTSCENE_INTRO,         // 0x1E
+    SEQ_EVENT_CUTSCENE_VICTORY,       // 0x1F
+    SEQ_EVENT_CUTSCENE_ENDING,        // 0x20
+    SEQ_MENU_FILE_SELECT,             // 0x21
+    SEQ_EVENT_CUTSCENE_LAKITU,        // 0x22 (not present in JP)
+    SEQ_COUNT
+};
+```
+
+A sequence ID can be OR'd with `SEQ_VARIATION` (`0x80`) to request an alternate arrangement of the same track. The base ID is masked with `SEQ_BASE_ID` (`0x7F`) when indexing into the sequence table. The game starts music via:
+
+```c
+void play_music(u8 player, u16 seqArgs, u16 fadeTimer);
+// Example: play_music(SEQ_PLAYER_LEVEL, SEQUENCE_ARGS(4, SEQ_LEVEL_GRASS), 0);
+```
+
+## Sound effects
+
+Sound effects are encoded as 32-bit words in `include/sounds.h`. Each word packs four fields:
+
+```c
+#define SOUND_ARG_LOAD(bank, soundID, priority, flags) ( \
+    ((u32)(bank)    << 28) |  \
+    ((u32)(soundID) << 16) |  \
+    ((u32)(priority) << 8) |  \
+    (flags) | SOUND_STATUS_WAITING)
+```
+
+The ten sound banks separate sounds by context:
+
+| Constant | Bank | Contents |
+|---|---|---|
+| `SOUND_BANK_ACTION` | 0 | Jumps, landings, punches |
+| `SOUND_BANK_MOVING` | 1 | Footsteps, sliding |
+| `SOUND_BANK_VOICE` | 2 | Mario's voice clips |
+| `SOUND_BANK_GENERAL` | 3 | General game sounds |
+| `SOUND_BANK_ENV` | 4 | Environmental ambience |
+| `SOUND_BANK_OBJ` | 5 | Object sounds |
+| `SOUND_BANK_AIR` | 6 | Wind, flying |
+| `SOUND_BANK_MENU` | 7 | Menu UI sounds |
+| `SOUND_BANK_GENERAL2` | 8 | Additional general sounds |
+| `SOUND_BANK_OBJ2` | 9 | Additional object sounds |
+
+Sound effects are triggered by `play_sound(s32 soundBits, f32 *pos)`, where `pos` is a 3-element world position used for stereo panning. Specific convenience wrappers like `play_dialog_sound()` and `play_mario_sound()` are declared in `external.h`.
+
+## RSP audio microcode
+
+The `rsp/` directory contains RSP assembly (`.s`) for the audio synthesis microcode. The RSP runs this code to mix note layers, apply volume envelopes, and write the final PCM output. Two microcode variants are present:
+
+<CodeGroup>
+```text rsp/ directory
+rsp/
+├── audio/     — audio synthesis RSP assembly
+└── gbi/       — Fast3D / F3DEX / F3DEX2 graphics RSP assembly
+```
+</CodeGroup>
+
+The synthesis engine in `synthesis.c` constructs `OSTask` structs that reference the compiled RSP audio ucode and the per-frame audio command list. The game posts these tasks to the RSP via the N64 OS task queue and waits for the `SP_INTR` completion interrupt before copying the PCM output to the audio DAC.
+
+## Audio sessions and presets
+
+`sound_reset(u8 presetId)` is the primary way the game switches the set of loaded sound banks when transitioning between areas. The preset ID selects a configuration from a static table that specifies which sound banks to load into the audio heap and which sequences to preload. On the Shindou version, `audio_session_presets_sh.c` provides an extended preset table that maps to the revised bank layout used in that release.
+
+<Tip>
+Three audio output modes are supported and selectable via `audio_set_sound_mode()`: `SOUND_MODE_STEREO` (0), `SOUND_MODE_HEADSET` (1), and `SOUND_MODE_MONO` (3). The headset mode applies a head-related transfer function to improve spatial audio on headphones.
+</Tip>

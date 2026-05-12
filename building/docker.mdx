@@ -1,0 +1,86 @@
+---
+title: "Build sm64dx with Docker"
+description: "Use the included Dockerfile to build sm64dx inside an Ubuntu 18.04 container, with no native MIPS toolchain required on your host."
+---
+
+The sm64dx repository includes a `Dockerfile` that sets up an Ubuntu 18.04 environment with all required build dependencies pre-installed: `binutils-mips-linux-gnu`, `build-essential`, `git`, `pkgconf`, and `python3`. Building with Docker means you do not need to install any native MIPS cross-compiler toolchain on your host machine — it works identically on macOS, Linux, and any other system with Docker available.
+
+## Prerequisites
+
+Install and start [Docker](https://www.docker.com/products/docker-desktop/). No other toolchain is required.
+
+## Build steps
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone sm64dx to your local machine:
+
+    ```bash
+    git clone https://github.com/Project516/sm64dx.git
+    cd sm64dx
+    ```
+  </Step>
+  <Step title="Place your baserom">
+    Copy your original Super Mario 64 ROM into the project root. The file must be named `baserom.<VERSION>.z64`:
+
+    ```bash
+    # Example for the US version
+    cp /path/to/your/rom.z64 baserom.us.z64
+    ```
+  </Step>
+  <Step title="Build the Docker image">
+    Create the Docker image from the included `Dockerfile`. This only needs to be done once (or after the `Dockerfile` changes):
+
+    ```bash
+    docker build -t sm64 .
+    ```
+
+    The image is tagged `sm64` for use in subsequent `docker run` commands.
+  </Step>
+  <Step title="Run the build">
+    Mount your local project directory into the container at `/sm64` and invoke `make`. Use the command for your host operating system:
+
+    <CodeGroup>
+
+    ```bash macOS
+    docker run --rm --mount type=bind,source="$(pwd)",destination=/sm64 sm64 make VERSION=us -j4
+    ```
+
+    ```bash Linux
+    docker run --rm --mount type=bind,source="$(pwd)",destination=/sm64 --user $UID:$GID sm64 make VERSION=us -j4
+    ```
+
+    </CodeGroup>
+
+    <Note>
+      On Linux, Docker runs as root inside the container by default, which would create build output files owned by root. The `--user $UID:$GID` flag instructs Docker to run as your current user so that output files are owned by you.
+    </Note>
+  </Step>
+</Steps>
+
+## Build output
+
+All build artifacts are written to the `build/` directory inside your local project checkout — not inside the container. The final ROM is located at:
+
+```
+build/<VERSION>/sm64.<VERSION>.z64
+```
+
+For example, a US build produces `build/us/sm64.us.z64`.
+
+## Building other versions
+
+Pass any `make` variable on the `docker run` command line after `make`:
+
+```bash
+# Build the Japanese version
+docker run --rm --mount type=bind,source="$(pwd)",destination=/sm64 sm64 make VERSION=jp -j4
+
+# Build the EU version without comparing the ROM hash
+docker run --rm --mount type=bind,source="$(pwd)",destination=/sm64 sm64 make VERSION=eu COMPARE=0
+
+# Build with GCC instead of IDO
+docker run --rm --mount type=bind,source="$(pwd)",destination=/sm64 sm64 make VERSION=us COMPILER=gcc -j4
+```
+
+See the [build options reference](/building/build-options) for the full list of variables.

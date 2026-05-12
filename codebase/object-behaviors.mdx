@@ -1,0 +1,193 @@
+---
+title: "Object behavior system and scripting"
+description: "How sm64dx's Object struct, rawData union, ObjectHitbox, and BehaviorScript arrays give every enemy, platform, and pickup its own per-frame scripted logic."
+---
+
+Every interactive entity in sm64dx—enemies, platforms, coins, NPCs, environmental effects—is an instance of `struct Object`. Each object carries a `BehaviorScript` pointer that points to a compact byte-code array interpreted every frame by the behavior script engine. The same `Object` struct is reused for every type of game entity; per-type data lives in a large `rawData` union accessed through named macros, keeping the struct a fixed size regardless of how many fields a given object type actually uses.
+
+## Object struct overview
+
+`Object` is defined in `include/types.h`. It begins with an `ObjectNode` header that embeds a `GraphNodeObject` (the scene-graph node), then provides the `rawData` union for per-type fields, and finally a block of fixed fields for hitbox geometry and the behavior interpreter state.
+
+```c
+struct Object {
+    /*0x000*/ struct ObjectNode header;     // scene-graph node + linked-list links
+    /*0x068*/ struct Object *parentObj;
+    /*0x06C*/ struct Object *prevObj;
+    /*0x070*/ u32 collidedObjInteractTypes; // bitmask of interact types that hit this object
+    /*0x074*/ s16 activeFlags;              // ACTIVE_FLAG_* bits controlling object lifetime
+    /*0x076*/ s16 numCollidedObjs;          // number of objects overlapping this frame
+    /*0x078*/ struct Object *collidedObjs[4];
+
+    /*0x088*/
+    union {
+        u32 asU32[0x50];
+        s32 asS32[0x50];
+        s16 asS16[0x50][2];
+        f32 asF32[0x50];
+        // pointer variants (32-bit build only; 64-bit uses ptrData below)
+        s16    *asS16P[0x50];
+        s32    *asS32P[0x50];
+        struct Animation   **asAnims[0x50];
+        struct Waypoint     *asWaypoint[0x50];
+        struct ChainSegment *asChainSegment[0x50];
+        struct Object       *asObject[0x50];
+        struct Surface      *asSurface[0x50];
+        void                *asVoidPtr[0x50];
+        const void          *asConstVoidPtr[0x50];
+    } rawData;
+
+    /*0x1C8*/ u32 unused1;
+    /*0x1CC*/ const BehaviorScript *curBhvCommand; // behavior script program counter
+    /*0x1D0*/ u32 bhvStackIndex;                   // behavior call-stack depth
+    /*0x1D4*/ uintptr_t bhvStack[8];               // behavior return-address stack
+    /*0x1F4*/ s16 bhvDelayTimer;                   // frames remaining in a DELAY command
+    /*0x1F6*/ s16 respawnInfoType;
+    /*0x1F8*/ f32 hitboxRadius;
+    /*0x1FC*/ f32 hitboxHeight;
+    /*0x200*/ f32 hurtboxRadius;
+    /*0x204*/ f32 hurtboxHeight;
+    /*0x208*/ f32 hitboxDownOffset;
+    /*0x20C*/ const BehaviorScript *behavior;      // pointer to behavior script start
+    /*0x210*/ u32 unused2;
+    /*0x214*/ struct Object *platform;
+    /*0x218*/ void *collisionData;                 // static or dynamic collision mesh
+    /*0x21C*/ Mat4 transform;                      // world transform matrix
+    /*0x25C*/ void *respawnInfo;
+};
+```
+
+On 64-bit host builds (PC ports), pointer-sized fields move into a separate `ptrData` union at `0x1C8` and the fixed fields shift accordingly, but the layout of `rawData` scalars is unchanged.
+
+## ObjectHitbox struct
+
+`ObjectHitbox` is a convenience struct for initialising an object's collision dimensions and interaction type in one call. The real hitbox values live as individual `f32` fields on `Object`; `obj_set_hitbox()` copies from this struct into those fields.
+
+```c
+struct ObjectHitbox {
+    /*0x00*/ u32 interactType;      // INTERACT_* constant (what happens on contact)
+    /*0x04*/ u8  downOffset;        // downward hitbox offset from object origin
+    /*0x05*/ s8  damageOrCoinValue; // damage dealt to Mario, or coin value if pickup
+    /*0x06*/ s8  health;            // initial health points
+    /*0x07*/ s8  numLootCoins;      // coins spawned on defeat
+    /*0x08*/ s16 radius;            // hitbox radius (cylinder)
+    /*0x0A*/ s16 height;            // hitbox height
+    /*0x0C*/ s16 hurtboxRadius;     // inner hurtbox radius (where Mario takes damage)
+    /*0x0E*/ s16 hurtboxHeight;     // inner hurtbox height
+};
+```
+
+### Real example: Goomba hitbox
+
+From `src/game/behaviors/goomba.inc.c`:
+
+```c
+static struct ObjectHitbox sGoombaHitbox = {
+    /* interactType:      */ INTERACT_BOUNCE_TOP,
+    /* downOffset:        */ 0,
+    /* damageOrCoinValue: */ 1,
+    /* health:            */ 0,
+    /* numLootCoins:      */ 1,
+    /* radius:            */ 72,
+    /* height:            */ 50,
+    /* hurtboxRadius:     */ 42,
+    /* hurtboxHeight:     */ 40,
+};
+```
+
+`INTERACT_BOUNCE_TOP` means Mario bounces when jumping on this object. The hurtbox (42 × 40) is smaller than the hitbox (72 × 50), so a walking hit damages Mario while a precise top-bounce kills the Goomba.
+
+## rawData field system
+
+The `rawData` union occupies 80 (`0x50`) slots, each 4 bytes wide. Every object type claims a subset of these slots for its own purposes. Named macros in `include/object_fields.h` map human-readable names to slot indices:
+
+```c
+// object_fields.h — common fields (shared by all objects)
+#define /*0x08C*/ oFlags             OBJECT_FIELD_U32(0x01)
+#define /*0x090*/ oDialogResponse    OBJECT_FIELD_S16(0x02, 0)
+#define /*0x09C*/ oIntangibleTimer   OBJECT_FIELD_S32(0x05)
+#define /*0x0A0*/ oPosX              OBJECT_FIELD_F32(O_POS_INDEX + 0)
+#define /*0x0A4*/ oPosY              OBJECT_FIELD_F32(O_POS_INDEX + 1)
+#define /*0x0A8*/ oPosZ              OBJECT_FIELD_F32(O_POS_INDEX + 2)
+#define /*0x0AC*/ oVelX              OBJECT_FIELD_F32(0x09)
+#define /*0x0B0*/ oVelY              OBJECT_FIELD_F32(0x0A)
+#define /*0x0B4*/ oVelZ              OBJECT_FIELD_F32(0x0B)
+#define /*0x0B8*/ oForwardVel        OBJECT_FIELD_F32(0x0C)
+#define /*0x0C4*/ oMoveAnglePitch    OBJECT_FIELD_S32(0x0F)
+#define /*0x0C8*/ oMoveAngleYaw      OBJECT_FIELD_S32(0x10)
+#define /*0x0D0*/ oFaceAnglePitch    OBJECT_FIELD_S32(0x12)
+#define /*0x0D4*/ oFaceAngleYaw      OBJECT_FIELD_S32(0x13)
+#define /*0x0E4*/ oGravity           OBJECT_FIELD_F32(0x17)
+#define /*0x0E8*/ oFloorHeight       OBJECT_FIELD_F32(0x18)
+#define /*0x130*/ oInteractType      OBJECT_FIELD_U32(0x2A)
+#define /*0x134*/ oInteractStatus    OBJECT_FIELD_S32(0x2B)
+```
+
+The macro expands differently depending on build target:
+
+```c
+// 32-bit build
+#define OBJECT_FIELD_F32(index)  rawData.asF32[index]
+#define OBJECT_FIELD_S32(index)  rawData.asS32[index]
+
+// 64-bit build (pointer variants move to ptrData)
+#define OBJECT_FIELD_VPTR(index) ptrData.asVoidPtr[index]
+```
+
+Object-specific slots (e.g. `oBowserHeldAnglePitch`, `oGoombaTargetYaw`) are defined in the same file below the common fields section.
+
+## How behavior scripts work
+
+A `BehaviorScript` is an array of `uintptr_t` words terminated by a `BEGIN`/`END` pair. The behavior script engine (in `src/engine/behavior_script.c`) processes one or more commands per frame until it hits a command that yields (`BREAK`, `DELAY`, `LOOP`) or ends the script.
+
+```c
+typedef uintptr_t BehaviorScript;
+
+// From Object:
+const BehaviorScript *curBhvCommand; // current "program counter"
+u32 bhvStackIndex;                   // depth of the call stack
+uintptr_t bhvStack[8];               // return addresses for CALL/RETURN
+s16 bhvDelayTimer;                   // countdown for DELAY commands
+const BehaviorScript *behavior;      // start of the behavior (for reset)
+```
+
+Macro commands in `include/behavior_data.h` assemble the word-level bytecode:
+
+```c
+// Conceptual behavior structure (macro-assembled):
+const BehaviorScript bhvGoomba[] = {
+    BEGIN(/*object list*/ OBJ_LIST_GENACTOR),
+    OR_INT(oFlags, OBJ_FLAG_UPDATE_GFX_POS_AND_ANGLE),
+    BEGIN_REPEAT(4),
+        CALL_NATIVE(bhv_goomba_init),   // runs once on spawn
+    END_REPEAT(),
+    BEGIN_LOOP(),
+        CALL_NATIVE(bhv_goomba_loop),   // runs every frame
+    END_LOOP(),
+};
+```
+
+`CALL_NATIVE` stores a C function pointer in the behavior word; the interpreter casts it and calls it directly. This is how the `.inc.c` files in `src/game/behaviors/` connect to the byte-code.
+
+## Behavior file categories
+
+The `src/game/behaviors/` directory contains 226 `.inc.c` files. They fall into the following broad categories:
+
+<CardGroup cols={2}>
+  <Card title="Enemies" icon="skull">
+    `goomba.inc.c`, `bowser.inc.c`, `koopa.inc.c`, `boo.inc.c`, `bully.inc.c`, `whomp.inc.c`, `thwomp.inc.c`, `piranha_plant.inc.c`, `fly_guy.inc.c`, `amp.inc.c`, and many more. Each defines init/loop functions and a static `ObjectHitbox`.
+  </Card>
+  <Card title="Platforms and environmental" icon="layer-group">
+    `rotating_platform.inc.c`, `seesaw_platform.inc.c`, `tilting_inverted_pyramid.inc.c`, `elevator.inc.c`, `donut_platform.inc.c`, `checkerboard_platform.inc.c`, and level-specific platforms like `ttc_treadmill.inc.c` and `lll_sinking_rock_block.inc.c`.
+  </Card>
+  <Card title="Pickups and collectibles" icon="coins">
+    `coin.inc.c`, `red_coin.inc.c`, `blue_coin.inc.c`, `moving_coin.inc.c`, `cap.inc.c`, `mushroom_1up.inc.c`, `star_door.inc.c`, `hidden_star.inc.c`, `grand_star.inc.c`, and `celebration_star.inc.c`.
+  </Card>
+  <Card title="NPCs and misc" icon="user">
+    `king_bobomb.inc.c`, `mips.inc.c`, `yoshi.inc.c`, `hoot.inc.c`, `dorrie.inc.c`, `racing_penguin.inc.c`, `tuxie.inc.c`, and warp/dialog objects like `warp.inc.c`, `door.inc.c`, and `cannon.inc.c`.
+  </Card>
+</CardGroup>
+
+<Note>
+All `.inc.c` files are `#include`d into `data/behavior_data.c`, which is the single translation unit compiled into the behavior segment. This is why they use the `.inc.c` extension rather than `.c`—they are not compiled independently.
+</Note>

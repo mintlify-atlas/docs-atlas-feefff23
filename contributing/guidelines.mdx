@@ -1,0 +1,77 @@
+---
+title: "How to contribute to sm64dx"
+description: "Learn how to submit pull requests, open issues for major changes, and follow the contribution workflow for the sm64dx decompilation project."
+---
+
+sm64dx is a community-driven decompilation of Super Mario 64 covering five regional releases. Contributions of all kinds are welcome — from labeling variables and documenting structs to matching functions and fixing bugs. The project is maintained through GitHub pull requests and coordinated on Discord.
+
+## Before you start
+
+For small fixes, you can open a pull request directly. For larger or architectural changes, open an issue first so the team can discuss the approach before you invest time implementing it.
+
+<Note>
+  Join the official Discord at [discord.gg/DuYH3Fh](https://discord.gg/DuYH3Fh) to ask questions, coordinate with other contributors, and stay up to date with project decisions.
+</Note>
+
+## Contribution workflow
+
+<Steps>
+  <Step title="Fork and clone the repository">
+    Fork the sm64dx repository on GitHub, then clone your fork locally:
+
+    ```bash
+    git clone https://github.com/<your-username>/sm64dx.git
+    cd sm64dx
+    ```
+  </Step>
+
+  <Step title="Create a feature branch">
+    Always work on a dedicated branch rather than committing directly to `main`. Use a descriptive name that reflects the scope of your change:
+
+    ```bash
+    git checkout -b label/whomp-actor-fields
+    ```
+  </Step>
+
+  <Step title="Make your changes">
+    Edit source files under `src/`, `include/`, `enhancements/`, or wherever your change applies. Refer to the [code style guide](/contributing/code-style) for formatting rules and naming conventions.
+
+    Build the project to verify your changes compile and, where applicable, produce a matching ROM:
+
+    ```bash
+    make VERSION=us -j4
+    ```
+
+    Build artifacts are written to the `build/` directory.
+  </Step>
+
+  <Step title="Run clang-format">
+    Run the project's formatting script before committing. This applies the `.clang-format` rules to all C source files in `src/`, `lib/src/`, and `enhancements/`:
+
+    ```bash
+    bash format.sh
+    ```
+
+    You can also format individual files:
+
+    ```bash
+    bash format.sh src/game/mario.c
+    ```
+
+    Pull requests that do not pass formatting checks will be asked to reformat before merging.
+  </Step>
+
+  <Step title="Open a pull request">
+    Push your branch and open a pull request against the main branch. Include a clear description of what you changed and why. Reference any related issues with `Closes #<number>` or `Relates to #<number>`.
+
+    For labeling and documentation PRs, see the [FAQ](/contributing/faq) for guidance on what to include.
+  </Step>
+</Steps>
+
+## Opening issues for major changes
+
+If your contribution involves significant restructuring — such as splitting a source file, changing compiler behavior, or introducing a new build variable — open an issue first to discuss the approach. This avoids duplicate effort and helps maintainers give early feedback on design decisions before implementation begins.
+
+<Tip>
+  Look through the CHANGES file and open issues to understand what kinds of PRs have been accepted in the past. The project has a clear preference for well-scoped, focused pull requests.
+</Tip>

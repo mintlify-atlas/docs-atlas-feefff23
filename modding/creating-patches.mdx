@@ -1,0 +1,78 @@
+---
+title: "Create your own enhancement patch"
+description: "Author a sm64dx enhancement patch using create_patch.sh to stage changes, capture a unified diff, and verify it applies cleanly with patch --dry-run."
+---
+
+If you have written a feature or fix that belongs in the `enhancements/` directory, you can package it as a standalone `.patch` file using `tools/create_patch.sh`. The script captures all staged and unstaged changes relative to the current `master` branch in standard unified-diff format, making the result immediately usable by `tools/apply_patch.sh` and the POSIX `patch` utility.
+
+## Workflow
+
+<Steps>
+  <Step title="Switch to the master branch">
+    Patches are always authored against `master`. Make sure you are on that
+    branch before starting.
+
+    ```bash
+    git checkout master
+    ```
+  </Step>
+  <Step title="Make your changes">
+    Edit, add, or delete source files as needed. Do **not** commit the
+    changes — `create_patch.sh` works against the unstaged and untracked
+    diff relative to the last commit.
+
+    New files that have never been tracked by Git are included automatically:
+    the script runs `git add .` internally to stage them before generating
+    the diff, then immediately runs `git reset` to unstage everything, leaving
+    your working tree exactly as it was.
+  </Step>
+  <Step title="Run create_patch.sh">
+    Pass the desired output path as the only argument. By convention, patch
+    files live in the `enhancements/` directory.
+
+    ```bash
+    tools/create_patch.sh enhancements/my_feature.patch
+    ```
+
+    The script will:
+
+    1. Run `git add .` to pick up any new untracked files.
+    2. Run `git diff -p --staged > enhancements/my_feature.patch` to write the patch.
+    3. Run `git reset` to unstage everything.
+  </Step>
+  <Step title="Verify the patch">
+    Open the generated file and check that all intended hunks are present and
+    that no unrelated changes leaked in. Then do a dry-run apply to confirm
+    it applies cleanly:
+
+    ```bash
+    patch -p1 --dry-run < enhancements/my_feature.patch
+    ```
+  </Step>
+</Steps>
+
+## Patch format
+
+The output is a standard unified diff (`git diff -p --staged`) with one level of path prefix — the same format consumed by `patch -p1`. Each hunk records the original and modified lines with `---`/`+++` headers so the patch can be applied to or reversed from any checkout of the repository.
+
+<Note>
+  The patch file is stored in `enhancements/` alongside the existing patches.
+  This keeps all optional features in a single, predictable location and makes
+  it easy to share the file with other developers.
+</Note>
+
+## Code style
+
+<Tip>
+  Run `clang-format` on your modified files before creating the patch. The
+  sm64dx codebase follows a consistent C style, and a well-formatted patch is
+  easier to review and less likely to produce conflicts when applied to other
+  forks.
+
+  ```bash
+  clang-format -i src/your_file.c
+  ```
+
+  After formatting, regenerate the patch so the formatting changes are baked
+  in rather than left as a separate step for the person applying the patch.
+</Tip>

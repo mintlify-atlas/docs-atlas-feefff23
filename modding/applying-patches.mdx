@@ -1,0 +1,87 @@
+---
+title: "Apply and revert enhancement patches"
+description: "Step-by-step instructions for applying and reverting sm64dx enhancement patches using the tools/apply_patch.sh and tools/revert_patch.sh shell scripts."
+---
+
+The patching workflow in sm64dx relies on two thin shell wrappers around the standard `patch` utility: `tools/apply_patch.sh` and `tools/revert_patch.sh`. Each script asks for interactive confirmation before touching any source files, so you have a chance to abort before anything is modified. Run both scripts from the repository root.
+
+<Warning>
+  Apply patches only to a clean working tree. If you have uncommitted local
+  changes, applying a patch may produce conflicts or leave your tree in an
+  inconsistent state. Run `git status` first and commit or stash any pending
+  work before proceeding.
+</Warning>
+
+## Applying a patch
+
+<Steps>
+  <Step title="Navigate to the repository root">
+    All patch scripts expect to be run from the repository root so that the
+    relative paths inside the `.patch` files resolve correctly.
+
+    ```bash
+    cd /path/to/sm64dx
+    ```
+  </Step>
+  <Step title="Run apply_patch.sh with the target patch">
+    Pass the path to the `.patch` file as the sole argument.
+
+    ```bash
+    tools/apply_patch.sh enhancements/crash.patch
+    ```
+
+    The script prompts you to confirm before applying:
+
+    ```
+    Do you wish to apply the patch 'enhancements/crash.patch'? [Y/N]
+    ```
+
+    Enter `Y` to proceed. The script calls `patch -p1` with the patch file,
+    stripping one level of path prefix so that the hunks map correctly onto
+    the repository layout.
+  </Step>
+  <Step title="Build the project">
+    After the patch is applied, rebuild the ROM to incorporate the new code.
+
+    ```bash
+    make VERSION=us
+    ```
+  </Step>
+</Steps>
+
+## Reverting a patch
+
+<Steps>
+  <Step title="Run revert_patch.sh with the same patch file">
+    Pass the exact same `.patch` file you originally applied.
+
+    ```bash
+    tools/revert_patch.sh enhancements/crash.patch
+    ```
+
+    The script prompts for confirmation:
+
+    ```
+    Do you wish to revert the patch 'enhancements/crash.patch'? [Y/N]
+    ```
+
+    Enter `Y` to proceed. Internally the script calls `patch -p1 -R`, which
+    applies the patch in reverse to undo every hunk.
+  </Step>
+  <Step title="Rebuild">
+    Rebuild after reverting to ensure the binary no longer includes the
+    enhancement.
+
+    ```bash
+    make VERSION=us
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  To understand exactly what each script does, read the source directly — they
+  are short and straightforward:
+
+  - `tools/apply_patch.sh` — confirmation prompt, then `patch -p1 < patch_file`
+  - `tools/revert_patch.sh` — confirmation prompt, then `patch -p1 -R < patch_file`
+</Note>

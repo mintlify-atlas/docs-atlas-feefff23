@@ -1,0 +1,97 @@
+---
+title: "Build sm64dx on macOS with Homebrew or Docker"
+description: "Use Homebrew to install GNU make and a MIPS cross-compiler on macOS, or run the Docker image to build sm64dx without any native toolchain setup."
+---
+
+Building sm64dx natively on macOS requires Homebrew to supply a modern GNU make and a MIPS cross-compiler toolchain, because the versions of `make` and the toolchain shipped with Xcode are either absent or too old. Alternatively, you can use Docker to run an Ubuntu-based build environment without touching your host system's toolchain at all. Both approaches are documented below.
+
+<Tabs>
+  <Tab title="Homebrew">
+    ## Install dependencies
+
+    Install [Homebrew](https://brew.sh) if you haven't already, then install the required packages:
+
+    ```bash
+    brew update
+    brew install coreutils make pkg-config tehzz/n64-dev/mips64-elf-binutils
+    ```
+
+    This installs GNU coreutils, GNU make (available as `gmake`), `pkg-config`, and a MIPS64 ELF binutils cross-toolchain from the `tehzz/n64-dev` tap.
+
+    <Note>
+      macOS ships with a BSD version of `make` that is too old to build sm64dx. Always use `gmake` (the Homebrew GNU make) instead of `make` when building on macOS.
+    </Note>
+
+    ## Build steps
+
+    <Steps>
+      <Step title="Clone the repository">
+        ```bash
+        git clone https://github.com/Project516/sm64dx.git
+        cd sm64dx
+      </Step>
+      <Step title="Place your baserom">
+        Copy your original Super Mario 64 ROM into the project root, naming it `baserom.<VERSION>.z64`:
+
+        ```bash
+        cp /path/to/your/rom.z64 baserom.us.z64
+        ```
+      </Step>
+      <Step title="Run gmake">
+        Use `gmake` (not `make`) to build. The default version is `us`:
+
+        ```bash
+        gmake VERSION=us
+        ```
+
+        To build the Japanese version with 4 parallel jobs:
+
+        ```bash
+        gmake VERSION=jp -j4
+        ```
+
+        Build artifacts are placed in the `build/` directory.
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="Docker">
+    ## Prerequisites
+
+    Install and start [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/). No MIPS toolchain or GNU make is needed on the host.
+
+    ## Build steps
+
+    <Steps>
+      <Step title="Clone the repository">
+        ```bash
+        git clone https://github.com/Project516/sm64dx.git
+        cd sm64dx
+      </Step>
+      <Step title="Place your baserom">
+        Copy your original Super Mario 64 ROM into the project root:
+
+        ```bash
+        cp /path/to/your/rom.z64 baserom.us.z64
+        ```
+      </Step>
+      <Step title="Build the Docker image">
+        Build the image once. This step only needs to be repeated if the `Dockerfile` changes:
+
+        ```bash
+        docker build -t sm64 .
+        ```
+      </Step>
+      <Step title="Build the ROM">
+        Mount the current directory into the container and run `make`:
+
+        ```bash
+        docker run --rm --mount type=bind,source="$(pwd)",destination=/sm64 sm64 make VERSION=us -j4
+        ```
+
+        Build artifacts are placed in the `build/` directory of your local checkout.
+      </Step>
+    </Steps>
+
+    For full Docker documentation including the Linux-specific `--user` flag, see the [Docker build guide](/building/docker).
+  </Tab>
+</Tabs>

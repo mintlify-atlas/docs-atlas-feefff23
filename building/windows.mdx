@@ -1,0 +1,43 @@
+---
+title: "Build sm64dx on Windows using WSL"
+description: "Install Windows Subsystem for Linux with Debian or Ubuntu, then follow the Linux build guide to compile sm64dx on a Windows 10 or 11 machine."
+---
+
+sm64dx does not have a native Windows build path. The supported approach is to use Windows Subsystem for Linux (WSL), which provides a full Linux environment running inside Windows. Once WSL is set up and a supported Linux distribution is installed, you follow the same steps as any Linux user — install the MIPS toolchain, place your baserom, and run `make`.
+
+## Install WSL
+
+Follow the official Microsoft installation guide to enable WSL on your machine:
+
+[Windows Subsystem for Linux Installation Guide for Windows 10](https://docs.microsoft.com/en-us/windows/wsl/install-win10)
+
+<Note>
+  WSL1 does not currently support Ubuntu 20.04. If you want to use Ubuntu, choose **Ubuntu 18.04 LTS** from the Microsoft Store, or use Debian, which works on both WSL1 and WSL2.
+</Note>
+
+**Recommended distributions:**
+- **Debian** — works on WSL1 and WSL2
+- **Ubuntu 18.04 LTS** — works on WSL1 and WSL2
+
+Ubuntu 20.04 and later require WSL2. If you are unsure which WSL version you have, run `wsl --list --verbose` in PowerShell.
+
+## Set up the Linux environment
+
+Once your WSL distribution is running, open its terminal and clone the repository from within the Linux shell — do not use a path under `/mnt/c/` or other Windows-mounted drives, as this can cause build failures.
+
+```bash
+git clone https://github.com/Project516/sm64dx.git
+cd sm64dx
+```
+
+<Warning>
+  Keep the repository inside the Linux filesystem (e.g., `~/sm64`), not on a Windows-mounted path like `/mnt/c/Users/...`. Building from Windows-mounted paths can cause asset extraction failures and long build times.
+</Warning>
+
+## Build the ROM
+
+With WSL configured and the repository cloned, continue with the Linux build instructions. Install the MIPS toolchain for your chosen distribution, place your `baserom.<VERSION>.z64` file, and run `make`:
+
+<Card title="Linux build guide" icon="linux" href="/building/linux">
+  Full step-by-step instructions for installing dependencies and running `make` on Debian, Ubuntu, Arch Linux, and Fedora-based systems.
+</Card>

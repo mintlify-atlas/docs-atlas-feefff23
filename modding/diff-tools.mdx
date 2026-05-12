@@ -1,0 +1,89 @@
+---
+title: "Assembly diff tools: diff.py and first-diff.py"
+description: "How to use diff.py and first-diff.py to compare compiled MIPS assembly against the original ROM and locate the first differing instruction."
+---
+
+Matching work in sm64dx requires byte-for-byte agreement between the recompiled ROM and the original baserom. Two Python tools make that verification practical: `diff.py` compares the compiled assembly for a specific function or address against the disassembly of the original ROM, and `first-diff.py` scans the entire binary to find the very first instruction that diverges. Both tools read their configuration from `diff_settings.py` in the repository root.
+
+## diff.py
+
+`diff.py` disassembles the same region of code from two sources — your freshly built ROM and the original baserom — and prints a colour-coded side-by-side comparison. Differences in register use, immediates, or instruction selection appear immediately, making it straightforward to iterate on a function until it matches.
+
+### Configuration
+
+The tool reads `diff_settings.py` at startup. The relevant settings for sm64dx are:
+
+```python diff_settings.py
+def apply(config, args):
+    lang = args.lang or 'us'
+    config['mapfile'] = f'build/{lang}/sm64.{lang}.map'
+    config['myimg']   = f'build/{lang}/sm64.{lang}.z64'
+    config['baseimg'] = f'baserom.{lang}.z64'
+    config['makeflags'] = [f'VERSION={lang}']
+    config['source_directories'] = ['src', 'include', 'lib', 'lib/src', 'asm', 'rsp']
+```
+
+The `mapfile` tells `diff.py` how to resolve symbol names to addresses. `myimg` is the ROM you built and `baseimg` is the unmodified reference ROM. `source_directories` controls where the tool looks for C source to annotate the diff.
+
+### Version flags
+
+Pass a version flag to target a ROM other than US:
+
+| Flag | Version |
+|------|---------|
+| `-u` | United States (default) |
+| `-j` | Japan |
+| `-e` | Europe (PAL) |
+| `-s` | Shindou (Rumble Pak) |
+| `-c` | iQue (Chinese) |
+
+### Example usage
+
+```bash
+# Diff the bhv_goomba_walk_loop function against the US baserom
+./diff.py bhv_goomba_walk_loop
+
+# Diff a specific address range in the Japanese ROM
+./diff.py -j 0x80300000
+```
+
+<Note>
+  To diff against the Shindou version, pass `-s` and ensure
+  `baserom.sh.z64` is present in the repository root. The `diff_settings.py`
+  will automatically point `baseimg` and `mapfile` at the Shindou build
+  artifacts when `-s` is supplied.
+</Note>
+
+## first-diff.py
+
+`first-diff.py` does a linear byte scan of the compiled ROM and the baserom to find the earliest instruction address where the two diverge. This is useful at the start of a matching session when you need to know where to begin, or after a refactor when you want to confirm that your changes have not accidentally broken a previously matched region.
+
+### Basic usage
+
+```bash
+# Find the first differing instruction (uses the most recently built ROM version)
+./first-diff.py
+
+# Run make before scanning, then report
+./first-diff.py --make
+
+# Find the first three differing instructions
+./first-diff.py --count 3
+
+# Find the first difference in the Japanese ROM
+./first-diff.py -j
+```
+
+### The -d flag
+
+Pass `-d` to immediately launch `diff.py` on the result, jumping straight into the side-by-side view at the first differing function:
+
+```bash
+./first-diff.py -d
+```
+
+This is the fastest way to go from "something doesn't match" to "here is exactly what differs" in a single command.
+
+## Why these tools matter
+
+sm64dx aims to produce a ROM that is identical to the original at the binary level. Without assembly diffing, the only signal that something is wrong is a failing byte comparison of the full ROM — which tells you nothing about where or why. `diff.py` and `first-diff.py` give you precise, function-level feedback during the decompilation loop, making it feasible to match hundreds of functions systematically rather than hunting for differences by hand.

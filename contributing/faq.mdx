@@ -1,0 +1,105 @@
+---
+title: "Frequently asked questions about sm64dx"
+description: "Answers to common questions about building sm64dx, ROM versions, compiler choices, build variables, and how to contribute effectively."
+---
+
+This page collects answers to questions that come up often among new contributors and developers setting up their build environment for the first time. If your question is not listed here, join the Discord at [discord.gg/DuYH3Fh](https://discord.gg/DuYH3Fh) where the community can help.
+
+<AccordionGroup>
+  <Accordion title="Do I need a real SM64 ROM?">
+    Yes. The repository does not include all assets necessary to build the game. You must provide an original Super Mario 64 ROM named `baserom.<VERSION>.z64` and place it in the project root before running `make`. The build system extracts assets from this file during compilation.
+
+    Supported version suffixes are `jp`, `us`, `eu`, `sh`, and `cn`. Each corresponds to a different regional release and produces a different ROM with a known SHA-1 hash.
+  </Accordion>
+
+  <Accordion title="Which version should I build first?">
+    The `us` (North American) version is the most common starting point for modding and is the default when you run `make` without specifying `VERSION`. It uses the `f3d_old` RSP microcode by default and has the largest body of existing documentation and community resources.
+
+    ```bash
+    make VERSION=us -j4
+    ```
+  </Accordion>
+
+  <Accordion title="What is IDO and why is it the default compiler?">
+    IDO is the SGI IRIS Development Option compiler — the same toolchain that Silicon Graphics used to compile the original retail ROM. Building with IDO (`COMPILER=ido`, which is the default) produces output that matches the original binary byte-for-byte, including identical instruction sequences and data layout.
+
+    GCC generates functionally correct code but will not match the original ROM's assembly, so it cannot be used for matching work.
+  </Accordion>
+
+  <Accordion title="Can I build with GCC?">
+    Yes. Pass `COMPILER=gcc` to use the GNU C Compiler:
+
+    ```bash
+    make VERSION=us COMPILER=gcc -j4
+    ```
+
+    The resulting ROM will run correctly but will not produce a byte-for-byte match against the original. GCC builds are useful for porting work, testing, and platforms where IDO is not available.
+  </Accordion>
+
+  <Accordion title="What is NON_MATCHING?">
+    Some functions cannot yet be matched exactly using C source — they still rely on handwritten assembly in `asm/non_matchings/`. Setting `NON_MATCHING=1` substitutes functionally equivalent C implementations for those functions:
+
+    ```bash
+    make VERSION=us NON_MATCHING=1 -j4
+    ```
+
+    This flag also enables fixes for instances of undefined behavior (UB) that exist in the original code but that modern compilers may handle differently. Using `NON_MATCHING=1` is recommended when building for platforms or compilers other than IDO.
+  </Accordion>
+
+  <Accordion title="Why do I get a hash mismatch error?">
+    A hash mismatch means the ROM you built does not match the expected SHA-1 for that version. The two most common causes are:
+
+    - **Wrong baserom**: Your `baserom.<VERSION>.z64` is not the correct regional version (for example, a `jp` ROM placed as `baserom.us.z64`).
+    - **Wrong GRUCODE**: Each version has a default RSP microcode. Using a non-default GRUCODE with COMPARE=1 will produce a mismatch.
+
+    To skip hash comparison during development:
+
+    ```bash
+    make VERSION=us COMPARE=0 -j4
+    ```
+  </Accordion>
+
+  <Accordion title="What is GRUCODE?">
+    GRUCODE selects which RSP (Reality Signal Processor) microcode variant to compile into the ROM. Different versions of the game shipped with different microcode:
+
+    | GRUCODE | Default for |
+    |---|---|
+    | `f3d_old` | `jp`, `us` |
+    | `f3d_new` | `eu`, `sh`, `cn` |
+    | `f3dex` | — |
+    | `f3dex2` | — |
+    | `f3dzex` | Experimental (used in Animal Crossing) |
+
+    To override the default:
+
+    ```bash
+    make VERSION=us GRUCODE=f3dex2 COMPARE=0 -j4
+    ```
+
+    Changing GRUCODE from the version default requires `COMPARE=0` because the output will not match the original ROM hash.
+  </Accordion>
+
+  <Accordion title="How do I contribute a labeling or documentation PR?">
+    Labeling PRs — renaming variables, documenting structs, adding comments — are a major part of ongoing project work and are very welcome. Follow the standard [contribution workflow](/contributing/guidelines):
+
+    1. Fork and create a branch scoped to the area you are labeling (for example, `label/whomp-actor`).
+    2. Make your changes in the appropriate source files under `src/`, `include/`, or `data/`.
+    3. Run `bash format.sh` to ensure formatting is correct.
+    4. Open a pull request with a clear title describing what was labeled or documented.
+
+    You do not need to produce a matching ROM for a pure labeling PR, but the code must still compile cleanly.
+  </Accordion>
+
+  <Accordion title="Where do build artifacts go?">
+    All output from the build system is written to the `build/` directory at the project root. This includes the compiled ROM (`build/<VERSION>/sm64.<VERSION>.z64`), object files, and intermediate assets. The `build/` directory is generated by `make` and is not committed to the repository.
+  </Accordion>
+
+  <Accordion title="What is the difference between the sh and jp versions?">
+    Both `jp` and `sh` are Japanese releases, but they differ significantly:
+
+    - **jp** is the original 1996 Japanese launch cartridge. It uses `f3d_old` microcode and does not have Rumble Pak support.
+    - **sh** is the 1997 Shindou re-release (Shindou means "vibration" in Japanese). It adds Rumble Pak support via a revised audio and synthesis pipeline, uses `f3d_new` microcode, and has a distinct audio engine split between Shindou-specific and shared files.
+
+    The `sh` version required significant separate matching work due to these differences, completed in Refresh 13 (PR #1081).
+  </Accordion>
+</AccordionGroup>

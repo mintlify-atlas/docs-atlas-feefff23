@@ -1,0 +1,210 @@
+---
+title: "Game engine: collision, geo, and scripting"
+description: "Explore sm64dx's surface collision, GraphNode tree, level script interpreter, and behavior script bytecode engine with real struct definitions from source."
+---
+
+The `src/engine/` directory is the heart of sm64dx's runtime: it contains the four interpreter-style engines that drive everything from loading a level to moving a Goomba. Surface collision queries triangles stored in a spatial grid, the geometry layout engine builds the scene-graph tree used by the renderer, the level script engine interprets a byte-code stream that wires up areas and objects, and the behavior script engine steps each active object through its per-frame logic. All four systems share the types defined in `include/types.h`.
+
+## Surface collision system
+
+Every walkable floor, ceiling, and wall in the game is represented as a `Surface` triangle. The collision system loads these triangles into a cell-based spatial hash at level load time (`surface_load.c`) and then answers point queries—find floor, find ceiling, find walls—each frame.
+
+### The Surface struct
+
+```c
+struct Surface {
+    /*0x00*/ TerrainData type;         // surface type (e.g. slippery, lava, water)
+    /*0x02*/ TerrainData force;        // pushes Mario when stood on (e.g. moving platforms)
+    /*0x04*/ s8 flags;                 // surface flags (e.g. SURFACE_FLAG_DYNAMIC)
+    /*0x05*/ RoomData room;            // room index (-128 to 127)
+    /*0x06*/ TerrainData lowerY;       // AABB lower Y bound
+    /*0x08*/ TerrainData upperY;       // AABB upper Y bound
+    /*0x0A*/ Vec3Terrain vertex1;      // first triangle vertex (s16[3])
+    /*0x10*/ Vec3Terrain vertex2;      // second triangle vertex
+    /*0x16*/ Vec3Terrain vertex3;      // third triangle vertex
+    /*0x1C*/ struct {
+        f32 x;
+        f32 y;
+        f32 z;
+    } normal;                          // pre-computed face normal
+    /*0x28*/ f32 originOffset;         // plane equation: dot(normal, vertex1)
+    /*0x2C*/ struct Object *object;    // owning object for dynamic surfaces (NULL for static)
+};
+```
+
+`TerrainData` is a typedef for `s16`, and `Vec3Terrain` is `TerrainData[3]`. Vertex coordinates are stored as signed 16-bit integers, which constrains the level boundary to ±32 768 units; the actual enforced playfield limit is ±8 192 (`LEVEL_BOUNDARY_MAX`).
+
+### Wall collision data
+
+```c
+struct WallCollisionData {
+    /*0x00*/ f32 x, y, z;       // query origin
+    /*0x0C*/ f32 offsetY;       // vertical offset applied before testing
+    /*0x10*/ f32 radius;        // capsule radius
+    /*0x14*/ u8 filler[2];
+    /*0x16*/ s16 numWalls;      // number of walls found (max 4)
+    /*0x18*/ struct Surface *walls[4]; // hit wall surfaces
+};
+```
+
+### Collision query API
+
+```c
+// surface_collision.h
+s32 f32_find_wall_collision(f32 *xPtr, f32 *yPtr, f32 *zPtr, f32 offsetY, f32 radius);
+s32 find_wall_collisions(struct WallCollisionData *colData);
+f32 find_ceil(f32 posX, f32 posY, f32 posZ, struct Surface **pceil);
+f32 find_floor_height_and_data(f32 xPos, f32 yPos, f32 zPos, struct FloorGeometry **floorGeo);
+f32 find_floor_height(f32 x, f32 y, f32 z);
+f32 find_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor);
+f32 find_water_level(f32 x, f32 z);
+f32 find_poison_gas_level(f32 x, f32 z);
+```
+
+`find_floor` and `find_ceil` return the Y position of the nearest surface and write a pointer to the `Surface` struct through their output parameter. Callers typically use the returned Y value for physics and the `Surface` pointer to read terrain type or the owning object.
+
+<Note>
+The spatial grid uses `CELL_SIZE = 0x400` (1024 units) and spans ±8192 in X and Z. Dynamic surfaces—those attached to moving objects—are rebuilt from `object->collisionData` each frame before queries run.
+</Note>
+
+## Geometry layout system
+
+The geo layout engine reads a stream of `GeoLayout` (`uintptr_t`) words and constructs a tree of `GraphNode` structs that the renderer traverses to emit display-list commands. Each node type represents a different rendering operation.
+
+### Base GraphNode
+
+```c
+struct GraphNode {
+    /*0x00*/ s16 type;                // node type identifier
+    /*0x02*/ s16 flags;               // hi byte = drawing layer, lo byte = render flags
+    /*0x04*/ struct GraphNode *prev;  // previous sibling
+    /*0x08*/ struct GraphNode *next;  // next sibling
+    /*0x0C*/ struct GraphNode *parent;
+    /*0x10*/ struct GraphNode *children;
+};
+```
+
+Every specialized node type begins with an embedded `struct GraphNode node` as its first member, making all node types safely castable from `GraphNode *`.
+
+### Graph node types
+
+The geo layout interpreter creates one of the following node types depending on the command byte it reads. Each command function in `geo_layout.h` maps to one node type:
+
+| Command function | Node role |
+|---|---|
+| `geo_layout_cmd_node_root` | Root of the scene graph |
+| `geo_layout_cmd_node_ortho_projection` | Orthographic projection (HUD, menus) |
+| `geo_layout_cmd_node_perspective` | Perspective camera frustum |
+| `geo_layout_cmd_node_master_list` | Groups draw calls by rendering layer |
+| `geo_layout_cmd_node_level_of_detail` | Switches child based on camera distance |
+| `geo_layout_cmd_node_switch_case` | Switches child based on a game variable |
+| `geo_layout_cmd_node_camera` | Camera transform node |
+| `geo_layout_cmd_node_translation_rotation` | Local TRS transform |
+| `geo_layout_cmd_node_animated_part` | Per-joint transform driven by animation data |
+| `geo_layout_cmd_node_billboard` | Always faces the camera |
+| `geo_layout_cmd_node_display_list` | Emits a static display list |
+| `geo_layout_cmd_node_shadow` | Draws Mario's circular shadow |
+| `geo_layout_cmd_node_object_parent` | Attachment point for held objects |
+| `geo_layout_cmd_node_generated` | Calls a C function to emit a display list |
+| `geo_layout_cmd_node_background` | Skybox / background render |
+| `geo_layout_cmd_node_held_obj` | Renders the object Mario is holding |
+| `geo_layout_cmd_node_culling_radius` | Sphere-based frustum culling |
+
+### Object graph node
+
+When an object is active, its `ObjectNode.gfx` field is a `GraphNodeObject`—a specialized graph node with position, rotation, scale, and animation state:
+
+```c
+struct GraphNodeObject {
+    /*0x00*/ struct GraphNode node;
+    /*0x14*/ struct GraphNode *sharedChild; // shared model sub-graph
+    /*0x18*/ s8 areaIndex;
+    /*0x19*/ s8 activeAreaIndex;
+    /*0x1A*/ Vec3s angle;      // pitch, yaw, roll (s16)
+    /*0x20*/ Vec3f pos;        // world position
+    /*0x2C*/ Vec3f scale;      // per-axis scale
+    /*0x38*/ struct AnimInfo animInfo;
+    /*0x4C*/ struct SpawnInfo *unk4C;
+    /*0x50*/ Mat4 *throwMatrix;         // override world matrix when held
+    /*0x54*/ Vec3f cameraToObject;
+};
+```
+
+The entry point to the geo layout engine is:
+
+```c
+struct GraphNode *process_geo_layout(struct AllocOnlyPool *pool, void *segptr);
+```
+
+## Level script system
+
+Level scripts are arrays of `LevelScript` (`uintptr_t`) words interpreted by `level_script_execute()`. They orchestrate area loading, segment DMA, object spawning, and transition sequencing.
+
+```c
+// level_script.h
+struct LevelCommand *level_script_execute(struct LevelCommand *cmd);
+```
+
+Internally, each command is a two-byte header:
+
+```c
+struct LevelCommand {
+    /*00*/ u8 type;   // opcode
+    /*01*/ u8 size;   // command size in 4-byte words
+    /*02*/ // variable-length argument data
+};
+```
+
+The interpreter maintains a small call stack (`sStack[32]`) and a `ScriptStatus` enum (`SCRIPT_RUNNING`, `SCRIPT_PAUSED`, `SCRIPT_PAUSED2`) so it can yield across frames while waiting for DMA transfers to complete. The macro vocabulary—`LOAD_RAW`, `JUMP`, `CALL`, `RETURN`, `SLEEP`, `SPAWN_OBJ`, `SET_REG`, etc.—is defined in `include/level_commands.h`.
+
+<Tip>
+Level scripts for individual levels live in `levels/<level_name>/script.c`. The top-level entry point is `level_script_entry[]` in `asm/`, which chains through the main menu and ultimately into the per-level scripts.
+</Tip>
+
+## Behavior script system
+
+Every object's per-frame logic is driven by a `BehaviorScript` array interpreted by `cur_obj_update()` in `behavior_script.c`. The type alias is simple:
+
+```c
+typedef uintptr_t BehaviorScript;
+```
+
+Each word in the array encodes an opcode in its upper byte(s) and arguments in the remaining bytes. The interpreter reads `gCurBhvCommand` and dispatches to one of ~50 command handlers. Two result codes control flow:
+
+```c
+#define BHV_PROC_CONTINUE 0  // advance to next command this frame
+#define BHV_PROC_BREAK    1  // stop processing this object this frame
+```
+
+### Object behavior fields
+
+The `Object` struct stores the interpreter's runtime state alongside the behavior pointer:
+
+```c
+/*0x1CC*/ const BehaviorScript *curBhvCommand; // current program counter
+/*0x1D0*/ u32 bhvStackIndex;                   // call stack depth
+/*0x1D4*/ uintptr_t bhvStack[8];               // return address stack
+/*0x1F4*/ s16 bhvDelayTimer;                   // frames remaining in DELAY
+/*0x20C*/ const BehaviorScript *behavior;      // pointer to script start
+```
+
+Field access inside behavior functions uses the macros from `behavior_script.h`:
+
+```c
+#define cur_obj_get_int(offset)         gCurrentObject->OBJECT_FIELD_S32(offset)
+#define cur_obj_get_float(offset)       gCurrentObject->OBJECT_FIELD_F32(offset)
+#define cur_obj_set_int(offset, value)  gCurrentObject->OBJECT_FIELD_S32(offset) = (s32)(value)
+#define cur_obj_set_float(offset, value) gCurrentObject->OBJECT_FIELD_F32(offset) = (f32)(value)
+```
+
+Random number generation for behavior scripts uses a 16-bit LFSR:
+
+```c
+u16 random_u16(void);    // pseudorandom integer [0, 65535]
+float random_float(void); // pseudorandom float [0.0, 1.0)
+s32 random_sign(void);   // returns +1 or -1
+```
+
+<Warning>
+`BehaviorScript` arrays must be `#include`d into `data/behavior_data.c` to be linked into the correct ROM segment. Defining a behavior in a `.inc.c` file but omitting the `#include` in `behavior_data.c` will compile successfully but produce a broken or empty behavior at runtime.
+</Warning>

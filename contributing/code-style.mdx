@@ -1,0 +1,104 @@
+---
+title: "Code style and formatting standards"
+description: "Understand the clang-format rules, indentation, comment style, naming conventions, and clang-tidy checks used across the sm64dx codebase."
+---
+
+All C code in sm64dx is formatted with `clang-format` using a project-provided configuration file. Consistent formatting makes diffs easier to review and keeps the codebase uniform across contributions from many different developers. Before opening a pull request, run the formatting script described below.
+
+## Running clang-format
+
+The repository includes a `format.sh` script that applies `clang-format` to all relevant source directories in one command:
+
+```bash
+bash format.sh
+```
+
+This formats files in three locations:
+
+- `src/**/*.c` — main game source
+- `lib/src/*.c` — libultra source
+- `enhancements/*.inc.c` — enhancement includes
+
+To format one or more specific files instead:
+
+```bash
+bash format.sh src/game/mario.c src/game/camera.c
+```
+
+Internally, the script invokes:
+
+```bash
+clang-format -i -style=file <files>
+```
+
+The `-style=file` flag tells clang-format to read `.clang-format` from the project root.
+
+<Warning>
+  Pull requests that include unformatted code will be asked to reformat before merging. Run `format.sh` as the last step before pushing.
+</Warning>
+
+## clang-format settings
+
+The `.clang-format` file at the root of the repository defines the following rules:
+
+| Setting | Value | Effect |
+|---|---|---|
+| `IndentWidth` | `4` | Four spaces per indentation level |
+| `UseTab` | `Never` | Spaces only — no tab characters |
+| `ColumnLimit` | `104` | Lines wrap at 104 characters |
+| `PointerAlignment` | `Right` | Pointer `*` is placed next to the variable name |
+| `BreakBeforeBraces` | `Attach` | Opening braces attach to the preceding statement |
+| `AllowShortFunctionsOnASingleLine` | `false` | Functions always use multiple lines |
+| `AllowShortIfStatementsOnASingleLine` | `false` | `if` bodies always use their own line |
+| `IndentCaseLabels` | `true` | `case` labels are indented inside `switch` |
+| `AlignTrailingComments` | `true` | Trailing comments are column-aligned |
+| `SortIncludes` | `false` | `#include` order is preserved as written |
+| `BreakBeforeBinaryOperators` | `NonAssignment` | Binary operators (except `=`) break before the operator |
+| `BreakBeforeTernaryOperators` | `true` | Ternary `?` and `:` break before the operator |
+| `SpaceAfterCStyleCast` | `true` | A space follows C-style casts: `(u8) value` |
+
+<Note>
+  The project changed from 3-space to 4-space indentation in Refresh 16 (PR #1189). If you are reading older code or older documentation, the current standard is 4 spaces.
+</Note>
+
+## Comment style
+
+Use C-style block comments throughout the codebase:
+
+```c
+/* This is a single-line block comment */
+
+/*
+ * This is a multi-line block comment
+ * describing a more complex behavior.
+ */
+```
+
+C++ `//` line comments are not part of the project style and should be avoided in new contributions.
+
+## Naming conventions
+
+| Kind | Convention | Example |
+|---|---|---|
+| Functions | `snake_case` | `mario_update_geometry` |
+| Local variables | `snake_case` | `dist_to_floor` |
+| Global variables | `snake_case` | `gCurrentObject` |
+| Macros and `#define` constants | `SCREAMING_SNAKE_CASE` | `MARIO_WALL_KICK` |
+| Struct type names | `PascalCase` | `MarioState`, `Object` |
+| Enum values | `SCREAMING_SNAKE_CASE` | `ACT_IDLE` |
+
+## clang-tidy checks
+
+The project uses clang-tidy for an additional layer of static analysis. The `.clang-tidy` configuration at the repository root enables one check:
+
+```yaml
+Checks: '-*,readability-braces-around-statements'
+```
+
+This enforces that all control-flow statements (`if`, `else`, `for`, `while`) have their bodies wrapped in braces, even when the body is a single statement. The `FormatStyle: 'file'` setting ensures any auto-fixes applied by clang-tidy also respect the `.clang-format` rules.
+
+The `HeaderFilterRegex` limits header analysis to files under `src/`, `include/`, and `enhancements/`:
+
+```
+HeaderFilterRegex: '(src|include|enhancements)\/.*\.h$'
+```

@@ -1,0 +1,71 @@
+---
+title: "sm64dx: SM64 decompilation fork overview"
+description: "sm64dx provides fully matching C source for five SM64 regional releases — JP, US, EU, Shindou, and iQue — with build tooling and enhancement patches."
+---
+
+sm64dx is a personal fork of the community-driven Super Mario 64 decompilation project. It provides byte-for-byte matching C source code for all five major ROM versions — Japan (JP), North America (US), Europe (EU), Shindou (SH), and iQue Player (CN) — along with build tooling, documented data structures, enhancement patches, and developer utilities for assembly diffing.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up your build environment and compile your first ROM in minutes.
+  </Card>
+  <Card title="Build Options" icon="sliders" href="/building/build-options">
+    Explore every Makefile variable: VERSION, COMPILER, GRUCODE, and more.
+  </Card>
+  <Card title="Codebase Guide" icon="map" href="/codebase/project-structure">
+    Understand the directory layout, subsystems, and key data structures.
+  </Card>
+  <Card title="Enhancements" icon="puzzle-piece" href="/modding/enhancements-overview">
+    Apply optional patches for crash screens, FPS counters, and debug tools.
+  </Card>
+</CardGroup>
+
+## What makes sm64dx different
+
+This fork tracks the upstream [n64decomp/sm64](https://github.com/n64decomp/sm64) decompilation and applies additional labeling, documentation, and quality-of-life tooling improvements. All five regional ROM versions build to their exact original SHA-1 checksums when compiled with the IDO compiler.
+
+<CardGroup cols={2}>
+  <Card title="Building on Linux" icon="linux" href="/building/linux">
+    Full dependency and build instructions for Debian, Ubuntu, and Arch.
+  </Card>
+  <Card title="Building on macOS" icon="apple" href="/building/macos">
+    Homebrew and Docker-based setup for macOS developers.
+  </Card>
+  <Card title="Building on Windows" icon="windows" href="/building/windows">
+    WSL setup guide for building under Windows 10 and 11.
+  </Card>
+  <Card title="Docker Build" icon="docker" href="/building/docker">
+    Containerized build environment — no local toolchain required.
+  </Card>
+</CardGroup>
+
+## ROM versions supported
+
+| Version | Region | Notes |
+|---------|--------|-------|
+| `jp` | Japan (1996) | First release; compiled with `-g` optimization |
+| `us` | North America (1996) | Most common version for modding |
+| `eu` | Europe (1997) | PAL; compiled with `-O2` |
+| `sh` | Shindou (1997) | Japanese re-release with Rumble Pak support |
+| `cn` | iQue Player (2003) | Chinese market; includes iQue-specific platform detection |
+
+<Note>
+  You must own a legal copy of Super Mario 64. Place your ROM as `baserom.<VERSION>.z64` in the project root before running `make`.
+</Note>
+
+## Key subsystems
+
+<CardGroup cols={2}>
+  <Card title="Mario's action system" icon="person-running" href="/codebase/mario-actions">
+    How Mario's state machine drives movement, airborne, and submerged actions.
+  </Card>
+  <Card title="Object behaviors" icon="gamepad" href="/codebase/object-behaviors">
+    The behavior scripting system powering every enemy and interactive object.
+  </Card>
+  <Card title="Game engine" icon="gears" href="/codebase/game-engine">
+    Surface collision, geometry layout, level scripting, and rendering graph.
+  </Card>
+  <Card title="Audio system" icon="music" href="/codebase/audio-system">
+    RSP microcode, sequence player, synthesis pipeline, and bank loading.
+  </Card>
+</CardGroup>

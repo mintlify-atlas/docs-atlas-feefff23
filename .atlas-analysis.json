@@ -1,0 +1,91 @@
+{
+  "projectType": "general",
+  "projectName": "sm64dx",
+  "projectDescription": "A personal fork of the Super Mario 64 decompilation project, providing fully matching C source code for all major ROM versions (JP, US, EU, Shindou, iQue) along with build tooling, enhancements, and documentation.",
+  "theme": "aspen",
+  "primaryColor": "#0665fc",
+  "lightColor": "#7cb4fc",
+  "darkColor": "#04a4ec",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Building",
+            "pages": [
+              "building/linux",
+              "building/macos",
+              "building/windows",
+              "building/docker",
+              "building/build-options"
+            ]
+          },
+          {
+            "group": "Codebase Guide",
+            "pages": [
+              "codebase/project-structure",
+              "codebase/game-engine",
+              "codebase/mario-actions",
+              "codebase/object-behaviors",
+              "codebase/audio-system"
+            ]
+          },
+          {
+            "group": "Modifying & Enhancements",
+            "pages": [
+              "modding/enhancements-overview",
+              "modding/applying-patches",
+              "modding/creating-patches",
+              "modding/diff-tools"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/guidelines",
+              "contributing/code-style",
+              "contributing/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Full decompilation of SM64 for JP, US, EU, Shindou (SH), and iQue (CN) versions",
+    "Byte-for-byte ROM matching builds using IDO or GCC compilers",
+    "Comprehensive behavior system with 200+ documented enemy and object behaviors",
+    "Audio subsystem decompilation including RSP microcode and sequence player",
+    "Enhancement patches for crash screen, FPS counter, debug boxes, and demo recording",
+    "Docker and WSL support for cross-platform builds",
+    "Widescreen and NO_SEGMENTED_MEMORY build options for PC ports",
+    "Diff tools (diff.py, first-diff.py) for comparing compiled output against original ROM"
+  ],
+  "publicApiSurface": [
+    "make VERSION=<jp|us|eu|sh|cn>",
+    "make GRUCODE=<f3d_old|f3d_new|f3dex|f3dex2|f3dzex>",
+    "make COMPILER=<ido|gcc>",
+    "make COMPARE=<0|1>",
+    "make NON_MATCHING=1",
+    "tools/apply_patch.sh <patch>",
+    "tools/revert_patch.sh <patch>",
+    "tools/create_patch.sh",
+    "diff.py — assembly diff tool",
+    "first-diff.py — find first differing instruction",
+    "extract_assets.py — extract assets from baserom",
+    "MarioState struct (types.h)",
+    "Object struct and rawData fields (types.h)",
+    "BehaviorScript / behavior scripting macros (include/behavior_data.h)",
+    "GeoLayout / level scripting macros (include/geo_commands.h, include/level_commands.h)",
+    "Surface collision system (src/engine/surface_collision.h)",
+    "execute_mario_action() / set_mario_action() (src/game/mario.h)"
+  ]
+}

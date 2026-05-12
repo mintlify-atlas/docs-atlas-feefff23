@@ -1,0 +1,136 @@
+---
+title: "sm64dx project structure and directories"
+description: "A guide to the sm64dx repository layout, covering every top-level directory, the src/ subsystems, and the role of the include/ headers."
+---
+
+The sm64dx repository is a full decompilation of Super Mario 64 across five regional releases (JP, US, EU, Shindou, and iQue). The source tree separates hand-written C from extracted ROM assets, RSP microcode, build tooling, and level data into distinct directories so that each concern can be tracked, compiled, and compared independently. Understanding this layout is the first step to navigating the codebase.
+
+## Top-level directory tree
+
+```
+sm64
+├── actors/       object behaviors, geo layout, and display lists
+├── asm/          handwritten MIPS assembly and ROM header
+│   └── non_matchings/  assembly stubs for non-matching sections
+├── assets/       animation and demo data extracted from the ROM
+│   ├── anims/    animation data tables
+│   └── demos/    recorded input demos
+├── bin/          C files that order display lists and textures
+├── build/        output directory for compiled ROMs and objects
+├── data/         behavior scripts and miscellaneous data
+├── doxygen/      Doxygen documentation infrastructure
+├── enhancements/ example source modifications and patches
+├── include/      project-wide header files
+├── levels/       level scripts, geo layout, and display lists
+├── lib/          Nintendo SDK library code (libultra)
+├── rsp/          audio and Fast3D RSP assembly microcode
+├── sound/        sequences, sound samples, and sound banks
+├── src/          all C source code for the game
+│   ├── audio/    audio driver and sequence player
+│   ├── buffers/  stacks, heaps, and task buffers
+│   ├── engine/   script-processing engines and math utilities
+│   ├── game/     behaviors and the rest of the game logic
+│   ├── goddard/  Mario's intro screen renderer
+│   └── menu/     title screen, file select, act select, debug menus
+├── text/         dialog strings, level names, act names
+├── textures/     skybox and generic shared texture data
+└── tools/        Python and shell build tools
+```
+
+## Directory reference
+
+<Accordion title="actors/">
+Contains per-object data tightly coupled to individual game objects: geo layout scripts that describe a model's scene-graph hierarchy, display lists that emit RDP draw calls, and C files that hold behavior entry points. Each actor is typically a folder of `.inc.c` files `#include`d into a single translation unit so the linker can place them in the correct ROM segment.
+</Accordion>
+
+<Accordion title="asm/">
+Handwritten MIPS assembly for routines that could not be decompiled to matching C—primarily hot paths in the graphics pipeline and certain math routines. The `non_matchings/` sub-directory collects stubs that compile correctly but do not yet produce byte-identical output to the original ROM.
+</Accordion>
+
+<Accordion title="assets/">
+ROM-extracted binary data that does not live in C source. The `anims/` folder stores packed animation value and index arrays for every character animation; `demos/` holds the controller input recordings played back on the title screen.
+</Accordion>
+
+<Accordion title="bin/">
+Small C files whose sole purpose is to control link-time ordering of display lists and texture segments. They exist because the original ROM places certain data in specific positions within its segments, and the linker script must be able to reference them by symbol.
+</Accordion>
+
+<Accordion title="data/">
+Contains `behavior_data.c`, the single translation unit that `#include`s every `behaviors/*.inc.c` file and the shared behavior script tables. This aggregation pattern keeps individual behavior files small while allowing all behaviors to share a single compiled object and segment.
+</Accordion>
+
+<Accordion title="include/">
+Project-wide headers consumed by every subsystem. Key files are described in the [Headers reference](#headers-reference) section below.
+</Accordion>
+
+<Accordion title="levels/">
+One sub-directory per level, each containing a `leveldata.c` (display lists and collision meshes), a `script.c` (level script commands that set up the area), and a `geo.c` (geo layout commands that build the scene graph). The top-level `level_commands.h` and `geo_commands.h` headers provide the macro vocabulary used in these scripts.
+</Accordion>
+
+<Accordion title="lib/">
+A snapshot of the Nintendo 64 SDK's `libultra` library. This code is compiled as-is from the original SDK; it provides the OS, controller, audio, and RCP interfaces (`<PR/ultratypes.h>`, `<ultra64.h>`, etc.).
+</Accordion>
+
+<Accordion title="rsp/">
+RSP (Reality Signal Processor) assembly in `.s` format. The two main workloads are the audio synthesis ucode (mixed into PCM frames) and the Fast3D / F3DEX / F3DEX2 graphics microcode variants selected at build time via the `GRUCODE` variable.
+</Accordion>
+
+<Accordion title="sound/">
+Binary sound banks (`.aiff`-derived), sequence files (`.m64` MIDI-like format), and bank definition JSON used by the build system to assemble the sound ROM. These are extracted from the original ROM and are not C source.
+</Accordion>
+
+<Accordion title="text/">
+Localized string tables for dialog, level names, and act names. The `.h.in` template files are pre-processed by the build system to produce version-specific headers for JP, US, EU, Shindou, and iQue encodings.
+</Accordion>
+
+<Accordion title="tools/">
+Python scripts (`extract_assets.py`, `diff.py`, `first-diff.py`) and shell utilities used during the build. `extract_assets.py` reads the original ROM and writes extracted assets into `assets/` and `sound/`.
+</Accordion>
+
+## src/ subsystem breakdown
+
+<CardGroup cols={2}>
+  <Card title="src/audio/" icon="music">
+    The audio driver: sequence player, synthesis engine, heap allocator, and load/DMA routines. Shindou-specific variants (`synthesis_sh.c`, `load_sh.c`, `port_sh.c`) handle the Shindou release's different audio session layout. See [Audio system](/codebase/audio-system) for a detailed breakdown.
+  </Card>
+  <Card title="src/buffers/" icon="database">
+    Statically sized buffers allocated at link time: the main thread stack, the game/audio heap blocks, and the RSP task yield buffers. Keeping buffers in their own translation unit lets the linker script place them in specific BSS segments.
+  </Card>
+  <Card title="src/engine/" icon="gear">
+    The four core script-processing engines—geo layout, level script, behavior script, and surface collision—plus `math_util.c` (vector/matrix math) and `surface_load.c` (spatial hashing for collision triangles). See [Game engine](/codebase/game-engine) for details.
+  </Card>
+  <Card title="src/game/" icon="gamepad">
+    The bulk of the game: Mario's action state machine, object list processing, camera, HUD, save files, interaction logic, area management, and all per-object behavior files in the `behaviors/` sub-directory. See [Mario actions](/codebase/mario-actions) and [Object behaviors](/codebase/object-behaviors).
+  </Card>
+  <Card title="src/goddard/" icon="star">
+    A self-contained renderer for the Goddard (interactive Mario face) intro screen. It has its own math library, display-list emitter, and object system that is separate from the main game engine.
+  </Card>
+  <Card title="src/menu/" icon="list">
+    Title screen, file-select screen, act-select screen, and the debug level-select menu. These share some rendering helpers with `src/game/` but are compiled separately to allow version-specific differences.
+  </Card>
+</CardGroup>
+
+## Headers reference
+
+The `include/` directory provides types and constants consumed across the entire project.
+
+<Steps>
+  <Step title="types.h">
+    Defines the core data structures: `MarioState`, `Object`, `ObjectNode`, `Surface`, `GraphNode`, `GraphNodeObject`, `Animation`, `AnimInfo`, `Controller`, `ObjectHitbox`, and the primitive typedefs (`Vec3f`, `Vec3s`, `Mat4`, `BehaviorScript`, `LevelScript`, `GeoLayout`, etc.). Almost every C file in `src/` includes this header directly or transitively.
+  </Step>
+  <Step title="config.h">
+    A single configuration header with `#define` flags for version-specific bug fixes (`BUGFIX_*` macros), rumble pak support (`ENABLE_RUMBLE`), screen dimensions (`SCREEN_WIDTH`, `SCREEN_HEIGHT`), and stack size constants. Consumers `#include` it via `types.h`.
+  </Step>
+  <Step title="object_fields.h">
+    Provides the `OBJECT_FIELD_*` macro family that maps named object fields (`oPosX`, `oForwardVel`, `oFaceAngleYaw`, etc.) to indices into `Object.rawData`. This indirection keeps field access portable between 32-bit and 64-bit host builds.
+  </Step>
+  <Step title="object_constants.h">
+    Enumerates action IDs, interaction types (`INTERACT_BOUNCE_TOP`, `INTERACT_DAMAGE`, etc.), object flags, and other integer constants referenced by behavior scripts and the interaction system.
+  </Step>
+  <Step title="seq_ids.h / sounds.h">
+    `seq_ids.h` declares the `SeqId` enum covering all 35 background music and event sequences. `sounds.h` encodes sound effect identifiers as packed 32-bit words combining bank, sound ID, priority, and status nibbles.
+  </Step>
+  <Step title="geo_commands.h / level_commands.h">
+    Macro wrappers that encode geo layout commands and level script commands as arrays of `uintptr_t` words. Level and actor source files use these macros rather than raw integer literals.
+  </Step>
+</Steps>
